@@ -28,8 +28,25 @@ targets:
         PRODUCT_NAME: Recorgi
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
-        ENABLE_HARDENED_RUNTIME: true
-        CODE_SIGN_STYLE: Automatic
+        # Hardened Runtime is for notarization/distribution, not local dev —
+        # and it enables Library Validation, which breaks Xcode's Debug-
+        # configuration "debug dylib" launch trick (main executable is a
+        # thin stub that loads the real code from a separate .debug.dylib;
+        # the stub is signed by Xcode's own toolchain, not by us, so
+        # validation fails once a real — even self-signed — identity is
+        # used instead of ad-hoc). Off for local builds; turn back on if
+        # this project ever needs to be notarized for distribution.
+        ENABLE_HARDENED_RUNTIME: false
+        # Self-signed local codesigning identity (no Apple Developer account
+        # needed) — keeps the app's code identity stable across rebuilds, so
+        # macOS doesn't treat every rebuild as a "new" app and reset TCC
+        # grants (mic, screen recording). Create it once via Keychain Access
+        # → Certificate Assistant → Create a Certificate… → Self Signed Root
+        # / Code Signing, name it exactly "Recorgi Local Dev", then trust it
+        # for code signing (double-click it → Trust → Code Signing → Always
+        # Trust). See README for the full walkthrough.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Recorgi Local Dev"
         SWIFT_VERSION: "5.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
