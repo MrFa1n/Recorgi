@@ -11,7 +11,12 @@ struct RecordingsLibraryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            // LazyVStack, not VStack: with dozens/hundreds of recordings,
+            // an eager VStack renders every card's .glassEffect() (Liquid
+            // Glass's blur/refraction material is expensive) at once, in
+            // the whole list, not just what's on screen — the direct cause
+            // of scroll lag. Lazy loading only materializes visible rows.
+            LazyVStack(alignment: .leading, spacing: 20) {
                 Text("Записи")
                     .font(.largeTitle.bold())
 
@@ -66,10 +71,14 @@ struct RecordingsLibraryView: View {
         }
     }
 
+    // Shared, not instantiated per row per render — RelativeDateTimeFormatter
+    // construction isn't free, and this used to run on every visible card on
+    // every re-render.
+    private static let relativeDateFormatter = RelativeDateTimeFormatter()
+
     private func detail(for recording: RecordingFile) -> String {
         let sizeString = ByteCountFormatter.string(fromByteCount: recording.sizeBytes, countStyle: .file)
         guard let date = recording.createdAt else { return sizeString }
-        let formatter = RelativeDateTimeFormatter()
-        return "\(formatter.localizedString(for: date, relativeTo: Date())) · \(sizeString)"
+        return "\(Self.relativeDateFormatter.localizedString(for: date, relativeTo: Date())) · \(sizeString)"
     }
 }
