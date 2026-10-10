@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import AVFoundation
 import CoreMedia
+import VideoToolbox
 import ScreenCaptureKit
 import Combine
 import RecorgiCore
@@ -182,10 +183,26 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         // the encoder can't sustain either. Scaled from a known-reasonable
         // 8 Mbps at 1080p30.
         let estimatedBitRate = Int((Double(pixelWidth * pixelHeight) / (1920.0 * 1080.0)) * 8_000_000)
+        // Force the *software* H.264 encoder. recorgi-debug.log traced the
+        // "operation could not be completed" failures to the hardware
+        // VideoToolbox encoder dying mid-session (AVFoundationErrorDomain
+        // -11800 / OSStatus -16122) at an unpredictable frame count — even
+        // on a freshly launched process, so it isn't about our own app
+        // leaving a previous session's encoder uncleaned. That's a hardware
+        // encoder contention/malfunction state at the OS level, and software
+        // encoding sidesteps it entirely. Costs more CPU; any frame the
+        // encoder can't keep up with is already handled by the
+        // isReadyForMoreMediaData drop path in append() below — a choppier
+        // recording, never a corrupted one.
+        let encoderSpecification: [String: Any] = [
+            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String: false,
+            kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder as String: false
+        ]
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: pixelWidth,
             AVVideoHeightKey: pixelHeight,
+            AVVideoEncoderSpecificationKey: encoderSpecification,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: estimatedBitRate,
                 AVVideoExpectedSourceFrameRateKey: frameRate,
