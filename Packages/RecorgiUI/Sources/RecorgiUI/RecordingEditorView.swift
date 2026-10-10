@@ -1,0 +1,208 @@
+import SwiftUI
+import AVFoundation
+import RecorgiCore
+import RecorgiCapture
+
+/// Minimal in-app video editor, opened from the Recordings library's play
+/// button instead of handing the file off to an external player. Covers
+/// trim (drag the two handles) and speed (0.5×–2×); "Сохранить как новый
+/// файл" exports the result as a separate .mov next to the original —
+/// the source recording is never modified in place.
+struct RecordingEditorView: View {
+    let recording: RecordingFile
+    var onExported: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var player: AVPlayer
+    @State private var duration: Double = 0
+    @State private var trimStart: Double = 0
+    @State private var trimEnd: Double = 0
+    @State private var playhead: Double = 0
+    @State private var isPlaying = false
+    @State private var speed: Double = 1.0
+    @State private var isExporting = false
+    @State private var exportProgress: Double = 0
+    @State private var exportError: String?
+    @State private var timeObserverToken: Any?
+
+    private let exporter = VideoEditExporter()
+    private let speeds: [Double] = [0.5, 1.0, 1.5, 2.0]
+
+    init(recording: RecordingFile, onExported: @escaping () -> Void) {
+        self.recording = recording
+        self.onExported = onExported
+        _player = State(initialValue: AVPlayer(url: recording.url))
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            HStack {
+                Text(recording.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer()
+                Button("Готово") { dismiss() }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+            }
+
+            PlayerLayerView(player: player)
+                .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .frame(minHeight: 320)
+
+            transportRow
+
+            TrimScrubber(duration: duration, trimStart: $trimStart, trimEnd: $trimEnd, playhead: playhead, onSeek: seek)
+
+            HStack {
+                Text("\(formatted(trimStart)) – \(formatted(trimEnd)) · длительность \(formatted(trimEnd - trimStart))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                exportButton
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 680, minHeight: 540)
+        .task { await loadAsset() }
+        .onDisappear { teardownPlayer() }
+        .alert("Ошибка", isPresented: Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } }
+        )) {
+            Button("ОК", role: .cancel) { exportError = nil }
+        } message: {
+            Text(exportError ?? "")
+        }
+    }
+
+    private var transportRow: some View {
+        HStack(spacing: 16) {
+            Button {
+                togglePlayback()
+            } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.glassProminent)
+            .buttonBorderShape(.circle)
+
+            Text(formatted(playhead))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Picker("Скорость", selection: $speed) {
+                ForEach(speeds, id: \.self) { value in
+                    Text("\(formattedSpeed(value))×").tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 220)
+            .onChange(of: speed) { _, newValue in
+                if isPlaying { player.rate = Float(newValue) }
+            }
+        }
+    }
+
+    private var exportButton: some View {
+        Button {
+            Task { await export() }
+        } label: {
+            if isExporting {
+                HStack(spacing: 6) {
+                    ProgressView(value: exportProgress)
+                        .frame(width: 60)
+                    Text("\(Int(exportProgress * 100))%")
+                }
+            } else {
+                Label("Сохранить как новый файл", systemImage: "square.and.arrow.down")
+            }
+        }
+        .buttonStyle(.glassProminent)
+        .buttonBorderShape(.capsule)
+        .disabled(isExporting || duration <= 0)
+    }
+
+    private func loadAsset() async {
+        let asset = player.currentItem?.asset ?? AVURLAsset(url: recording.url)
+        guard let loadedDuration = try? await asset.load(.duration) else { return }
+        duration = loadedDuration.seconds
+        trimEnd = duration
+
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+        // queue: .main guarantees this closure runs on the main thread, so
+        // MainActor.assumeIsolated is safe here — the @Sendable closure type
+        // AVPlayer requires doesn't by itself let the compiler see that.
+        timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+            MainActor.assumeIsolated {
+                playhead = time.seconds
+                if playhead >= trimEnd {
+                    player.pause()
+                    isPlaying = false
+                    player.seek(to: CMTime(seconds: trimStart, preferredTimescale: 600))
+                    playhead = trimStart
+                }
+            }
+        }
+    }
+
+    private func togglePlayback() {
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+        } else {
+            if playhead < trimStart || playhead >= trimEnd {
+                player.seek(to: CMTime(seconds: trimStart, preferredTimescale: 600))
+            }
+            player.rate = Float(speed)
+            isPlaying = true
+        }
+    }
+
+    private func seek(to time: Double) {
+        let clamped = min(max(time, 0), duration)
+        player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600))
+        playhead = clamped
+    }
+
+    private func teardownPlayer() {
+        if let token = timeObserverToken {
+            player.removeTimeObserver(token)
+        }
+        player.pause()
+    }
+
+    private func export() async {
+        isExporting = true
+        exportProgress = 0
+        let range = CMTimeRange(
+            start: CMTime(seconds: trimStart, preferredTimescale: 600),
+            end: CMTime(seconds: trimEnd, preferredTimescale: 600)
+        )
+        do {
+            _ = try await exporter.export(sourceURL: recording.url, range: range, speed: speed) { progress in
+                exportProgress = progress
+            }
+            isExporting = false
+            onExported()
+            dismiss()
+        } catch {
+            isExporting = false
+            exportError = error.localizedDescription
+        }
+    }
+
+    private func formatted(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    private func formattedSpeed(_ value: Double) -> String {
+        value.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(value)) : String(format: "%.1f", value)
+    }
+}

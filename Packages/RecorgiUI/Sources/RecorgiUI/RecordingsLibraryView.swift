@@ -48,6 +48,7 @@ struct RecordingsLibraryView: View {
     // SwiftUI recreates this View struct on every re-render, and a plain
     // `let` would silently spawn a fresh, unstarted watcher each time.
     @State private var watcher = RecordingsDirectoryWatcher()
+    @State private var editingRecording: RecordingFile?
 
     private let library = RecordingLibrary()
 
@@ -108,6 +109,9 @@ struct RecordingsLibraryView: View {
             Button("ОК", role: .cancel) { renameError = nil }
         } message: {
             Text(renameError ?? "")
+        }
+        .sheet(item: $editingRecording) { recording in
+            RecordingEditorView(recording: recording, onExported: refresh)
         }
     }
 
@@ -211,14 +215,14 @@ struct RecordingsLibraryView: View {
                 .help("Показать в Finder")
 
                 Button {
-                    NSWorkspace.shared.open(recording.url)
+                    editingRecording = recording
                 } label: {
                     Image(systemName: "play.fill")
                         .frame(width: 20, height: 20)
                 }
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.capsule)
-                .help("Воспроизвести")
+                .help("Открыть во встроенном плеере")
             }
         }
     }
