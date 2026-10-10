@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import RecorgiCore
 import RecorgiCapture
 
@@ -20,7 +21,7 @@ public struct ContentView: View {
 
     public var body: some View {
         VStack(spacing: 20) {
-            if permissions.microphoneStatus == .denied || permissions.screenRecordingStatus == .denied {
+            if permissions.microphoneStatus == .denied || permissions.screenRecordingStatus != .granted {
                 PermissionsBanner(permissions: permissions)
             }
 
@@ -71,6 +72,13 @@ public struct ContentView: View {
         .task {
             await permissions.requestAll()
             microphones = deviceProvider.availableMicrophones()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Catches the common flow: banner → System Settings → grant →
+            // switch back to Recorgi. Microphone updates immediately this
+            // way; screen recording may still need a full quit-and-reopen,
+            // which the banner explains.
+            permissions.refresh()
         }
     }
 
