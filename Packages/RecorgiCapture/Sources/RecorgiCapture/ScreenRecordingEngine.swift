@@ -333,6 +333,19 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         areaHighlighter.hide()
 
+        // The hardware H.264 encoder session VideoToolbox hands AVAssetWriter
+        // doesn't always finish releasing the instant stopCapture()/
+        // finishWriting() return. recorgi-debug.log shows the pipeline itself
+        // is sound now (PTS fix made the *first* recording per app launch
+        // finish cleanly every time) — but the second and third recordings in
+        // the same run die mid-stream at a different, unpredictable frame
+        // count with AVFoundationErrorDomain -11800 wrapping OSStatus -16122,
+        // which is exactly the signature of the next encode session claiming
+        // the hardware encoder before the previous one actually let go. A
+        // short cooldown here, before state goes back to .idle and a new
+        // recording is allowed to start, gives it that time.
+        try? await Task.sleep(nanoseconds: 700_000_000)
+
         state = .idle
     }
 
