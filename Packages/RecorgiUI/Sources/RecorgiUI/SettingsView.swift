@@ -6,8 +6,12 @@ import RecorgiCapture
 public struct SettingsView: View {
     @ObservedObject var settings: RecordingSettings
     @State private var microphones: [AudioInputDevice] = []
+    @State private var outputDevices: [AudioOutputDevice] = []
+    @State private var runningApps: [AudioApplication] = []
+    @State private var appsLoadError: String?
 
     private let deviceProvider = AudioDeviceProvider()
+    private let applicationProvider = RunningApplicationProvider()
 
     public init(settings: RecordingSettings) {
         self.settings = settings
@@ -15,17 +19,48 @@ public struct SettingsView: View {
 
     public var body: some View {
         Form {
-            Section("Аудио") {
+            Section("Системный звук") {
                 Toggle("Записывать системный звук", isOn: $settings.isSystemAudioEnabled)
+
+                Picker("Источник", selection: $settings.systemAudioScope) {
+                    Text("Весь системный звук").tag(SystemAudioScope.entireSystem)
+                    if !runningApps.isEmpty {
+                        Divider()
+                        ForEach(runningApps) { app in
+                            Text(app.name).tag(SystemAudioScope.application(app))
+                        }
+                    }
+                }
+                .disabled(!settings.isSystemAudioEnabled)
+
+                if let appsLoadError {
+                    Text(appsLoadError)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Микрофон") {
                 Toggle("Записывать микрофон", isOn: $settings.isMicrophoneEnabled)
 
-                Picker("Микрофон", selection: $settings.selectedMicrophoneID) {
+                Picker("Устройство", selection: $settings.selectedMicrophoneID) {
                     Text("По умолчанию").tag(String?.none)
                     ForEach(microphones) { device in
                         Text(device.name).tag(Optional(device.id))
                     }
                 }
                 .disabled(!settings.isMicrophoneEnabled)
+
+                Toggle("Слушать микрофон во время записи", isOn: $settings.isMonitoringEnabled)
+                    .disabled(!settings.isMicrophoneEnabled)
+
+                Picker("Куда выводить", selection: $settings.selectedMonitoringOutputID) {
+                    Text("Системное устройство по умолчанию").tag(String?.none)
+                    ForEach(outputDevices) { device in
+                        Text(device.name).tag(Optional(device.id))
+                    }
+                }
+                .disabled(!settings.isMicrophoneEnabled || !settings.isMonitoringEnabled)
             }
 
             Section("Сохранение") {
@@ -42,9 +77,15 @@ public struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(20)
-        .frame(width: 420, height: 260)
-        .onAppear {
+        .frame(width: 440, height: 420)
+        .task {
             microphones = deviceProvider.availableMicrophones()
+            outputDevices = deviceProvider.availableOutputDevices()
+            do {
+                runningApps = try await applicationProvider.availableApplications()
+            } catch {
+                appsLoadError = "Не удалось получить список приложений: \(error.localizedDescription)"
+            }
         }
     }
 

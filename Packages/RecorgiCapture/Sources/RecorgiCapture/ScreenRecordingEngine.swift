@@ -9,12 +9,14 @@ public enum RecordingError: LocalizedError {
     case noDisplayAvailable
     case noMicrophoneAvailable
     case microphoneSetupFailed
+    case audioApplicationUnavailable
 
     public var errorDescription: String? {
         switch self {
         case .noDisplayAvailable: return "No display available to record."
         case .noMicrophoneAvailable: return "No microphone available."
         case .microphoneSetupFailed: return "Could not set up the microphone input."
+        case .audioApplicationUnavailable: return "The selected app is no longer available to capture audio from."
         }
     }
 }
@@ -29,6 +31,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     @Published public private(set) var lastError: String?
 
     private var stream: SCStream?
+    private var appAudioStream: SCStream?
     private var assetWriter: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var systemAudioInput: AVAssetWriterInput?
@@ -57,6 +60,14 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             throw RecordingError.noDisplayAvailable
         }
 
+        let isAppScoped: Bool
+        if case .application = settings.systemAudioScope {
+            isAppScoped = true
+        } else {
+            isAppScoped = false
+        }
+        let capturesWholeSystemAudio = settings.isSystemAudioEnabled && !isAppScoped
+
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let scale = Self.backingScaleFactor(for: display.displayID)
         let pixelWidth = Int(Double(display.width) * scale)
@@ -66,7 +77,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         config.width = pixelWidth
         config.height = pixelHeight
         config.showsCursor = true
-        config.capturesAudio = settings.isSystemAudioEnabled
+        config.capturesAudio = capturesWholeSystemAudio
         config.sampleRate = 48_000
         config.channelCount = 2
 
@@ -98,7 +109,11 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             input.expectsMediaDataInRealTime = true
             writer.add(input)
             self.microphoneInput = input
-            try setUpMicrophoneCapture(deviceID: settings.selectedMicrophoneID)
+            try setUpMicrophoneCapture(
+                deviceID: settings.selectedMicrophoneID,
+                monitoringEnabled: settings.isMonitoringEnabled,
+                monitoringOutputID: settings.selectedMonitoringOutputID
+            )
         }
 
         self.assetWriter = writer
@@ -106,11 +121,31 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .main)
-        if settings.isSystemAudioEnabled {
+        if capturesWholeSystemAudio {
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
         }
         try await stream.startCapture()
         self.stream = stream
+
+        if settings.isSystemAudioEnabled, case .application(let app) = settings.systemAudioScope {
+            guard let match = content.applications.first(where: { $0.processID == app.processID }) else {
+                throw RecordingError.audioApplicationUnavailable
+            }
+            let appFilter = SCContentFilter(display: display, including: [match], exceptingWindows: [])
+            let appConfig = SCStreamConfiguration()
+            // We only want this stream's audio; keep its video output tiny
+            // since we never register a .screen handler for it.
+            appConfig.width = 2
+            appConfig.height = 2
+            appConfig.capturesAudio = true
+            appConfig.sampleRate = 48_000
+            appConfig.channelCount = 2
+
+            let appStream = SCStream(filter: appFilter, configuration: appConfig, delegate: self)
+            try appStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
+            try await appStream.startCapture()
+            self.appAudioStream = appStream
+        }
 
         microphoneSession?.startRunning()
         state = .recording(startedAt: Date())
@@ -129,6 +164,11 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         }
         stream = nil
 
+        if let appAudioStream {
+            try? await appAudioStream.stopCapture()
+        }
+        appAudioStream = nil
+
         videoInput?.markAsFinished()
         systemAudioInput?.markAsFinished()
         microphoneInput?.markAsFinished()
@@ -144,7 +184,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         state = .idle
     }
 
-    private func setUpMicrophoneCapture(deviceID: String?) throws {
+    private func setUpMicrophoneCapture(deviceID: String?, monitoringEnabled: Bool, monitoringOutputID: String?) throws {
         let session = AVCaptureSession()
 
         let device: AVCaptureDevice?
@@ -168,6 +208,16 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         output.setSampleBufferDelegate(relay, queue: microphoneQueue)
         guard session.canAddOutput(output) else { throw RecordingError.microphoneSetupFailed }
         session.addOutput(output)
+
+        // Monitoring is purely a live-listen path — it does not touch
+        // anything that gets written to the recorded file.
+        if monitoringEnabled {
+            let preview = AVCaptureAudioPreviewOutput()
+            preview.outputDeviceUniqueID = monitoringOutputID
+            if session.canAddOutput(preview) {
+                session.addOutput(preview)
+            }
+        }
 
         self.microphoneSession = session
         self.microphoneRelay = relay

@@ -8,6 +8,9 @@ public struct ContentView: View {
     @ObservedObject var engine: ScreenRecordingEngine
 
     @State private var isSettingsPresented = false
+    @State private var microphones: [AudioInputDevice] = []
+
+    private let deviceProvider = AudioDeviceProvider()
 
     public init(permissions: PermissionsManager, settings: RecordingSettings, engine: ScreenRecordingEngine) {
         self.permissions = permissions
@@ -25,7 +28,26 @@ public struct ContentView: View {
 
             HStack(spacing: 16) {
                 SourceToggle(title: "Системный звук", systemImage: "speaker.wave.2.fill", isOn: $settings.isSystemAudioEnabled)
-                SourceToggle(title: "Микрофон", systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
+
+                HStack(spacing: 4) {
+                    SourceToggle(title: "Микрофон", systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
+
+                    Menu {
+                        Button("По умолчанию") { settings.selectedMicrophoneID = nil }
+                        if !microphones.isEmpty {
+                            Divider()
+                            ForEach(microphones) { device in
+                                Button(device.name) { settings.selectedMicrophoneID = device.id }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down.circle.fill")
+                    }
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .disabled(!settings.isMicrophoneEnabled)
+                    .help(microphoneLabel)
+                }
             }
 
             if let error = engine.lastError {
@@ -48,7 +70,13 @@ public struct ContentView: View {
         }
         .task {
             await permissions.requestAll()
+            microphones = deviceProvider.availableMicrophones()
         }
+    }
+
+    private var microphoneLabel: String {
+        guard let id = settings.selectedMicrophoneID else { return "По умолчанию" }
+        return microphones.first(where: { $0.id == id })?.name ?? "По умолчанию"
     }
 }
 

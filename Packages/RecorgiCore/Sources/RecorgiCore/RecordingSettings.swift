@@ -6,8 +6,11 @@ import Combine
 /// the user opts out rather than having to discover and opt in.
 public final class RecordingSettings: ObservableObject {
     @Published public var isSystemAudioEnabled: Bool = true
+    @Published public var systemAudioScope: SystemAudioScope = .entireSystem
     @Published public var isMicrophoneEnabled: Bool = true
     @Published public var selectedMicrophoneID: String?
+    @Published public var isMonitoringEnabled: Bool = false
+    @Published public var selectedMonitoringOutputID: String?
     @Published public var saveDirectory: URL
 
     public init() {

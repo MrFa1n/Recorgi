@@ -12,4 +12,8 @@ public struct AudioDeviceProvider {
         )
         return discovery.devices.map { AudioInputDevice(id: $0.uniqueID, name: $0.localizedName) }
     }
+
+    public func availableOutputDevices() -> [AudioOutputDevice] {
+        CoreAudioOutputDeviceLister.listOutputDevices()
+    }
 }
