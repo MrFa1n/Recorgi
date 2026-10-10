@@ -15,6 +15,13 @@ struct TransportBar: View {
         return false
     }
 
+    private var isBusy: Bool {
+        switch engine.state {
+        case .starting, .stopping: return true
+        case .idle, .recording: return false
+        }
+    }
+
     private var startedAt: Date? {
         if case .recording(let date) = engine.state { return date }
         return nil
@@ -53,13 +60,20 @@ struct TransportBar: View {
                 }
             }
         } label: {
-            Image(systemName: isRecording ? "stop.fill" : "record.circle")
-                .font(.system(size: 18))
-                .frame(width: 40, height: 40)
+            if isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 40, height: 40)
+            } else {
+                Image(systemName: isRecording ? "stop.fill" : "record.circle")
+                    .font(.system(size: 18))
+                    .frame(width: 40, height: 40)
+            }
         }
         .buttonStyle(.glassProminent)
         .buttonBorderShape(.circle)
         .tint(isRecording ? .red : .accentColor)
+        .disabled(isBusy)
     }
 }
 

@@ -57,8 +57,27 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
     public func start(settings: RecordingSettings) async throws {
         guard case .idle = state else { return }
+        // Claimed immediately, before any `await` — start() does a lot of
+        // asynchronous work (fetching shareable content, starting streams),
+        // and state stayed .idle for the whole duration of that previously.
+        // A second tap on Record during that window re-entered this same
+        // function, which silently overwrote assetWriter/videoInput/stream
+        // etc. out from under the first, still-running call — orphaning its
+        // writer mid-write with nothing left to ever call finishWriting() on
+        // it. That produced exactly the "no moov atom" unplayable files:
+        // no error anywhere, because nothing ever got the chance to fail.
+        state = .starting
         lastError = nil
 
+        do {
+            try await performStart(settings: settings)
+        } catch {
+            state = .idle
+            throw error
+        }
+    }
+
+    private func performStart(settings: RecordingSettings) async throws {
         try FileManager.default.createDirectory(at: settings.saveDirectory, withIntermediateDirectories: true)
         let fileURL = settings.saveDirectory.appendingPathComponent(Self.timestampedFilename())
         let writer = try AVAssetWriter(outputURL: fileURL, fileType: .mov)
