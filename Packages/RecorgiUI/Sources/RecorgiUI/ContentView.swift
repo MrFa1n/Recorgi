@@ -41,7 +41,7 @@ public struct ContentView: View {
     private var detail: some View {
         switch selection ?? .record {
         case .record:
-            RecordPageView(permissions: permissions, settings: settings, engine: engine)
+            RecordPageView(permissions: permissions, settings: settings, engine: engine, selection: $selection)
         case .recordings:
             RecordingsLibraryView(saveDirectory: settings.saveDirectory)
         case .captureRegion:

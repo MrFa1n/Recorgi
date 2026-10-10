@@ -6,6 +6,7 @@ struct RecordPageView: View {
     @ObservedObject var permissions: PermissionsManager
     @ObservedObject var settings: RecordingSettings
     @ObservedObject var engine: ScreenRecordingEngine
+    @Binding var selection: SidebarSection?
 
     private var isRecording: Bool {
         if case .recording = engine.state { return true }
@@ -28,31 +29,27 @@ struct RecordPageView: View {
                     }
                 }
 
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Экран", systemImage: "rectangle.on.rectangle")
-                            .font(.headline)
-                        Text(captureRegionSummary)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Text("Настрой на вкладке «Область записи»")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
+                sourceCard(
+                    title: "Экран",
+                    systemImage: "rectangle.on.rectangle",
+                    summary: captureRegionSummary,
+                    destination: .captureRegion
+                )
 
                 HStack(alignment: .top, spacing: 16) {
                     sourceCard(
                         title: "Системный звук",
                         systemImage: "speaker.wave.2.fill",
-                        isOn: $settings.isSystemAudioEnabled,
-                        summary: systemAudioSummary
+                        summary: systemAudioSummary,
+                        destination: .audioSources,
+                        isOn: $settings.isSystemAudioEnabled
                     )
                     sourceCard(
                         title: "Микрофон",
                         systemImage: "mic.fill",
-                        isOn: $settings.isMicrophoneEnabled,
-                        summary: settings.isMicrophoneEnabled ? "Включён" : "Выключен"
+                        summary: microphoneSummary,
+                        destination: .audioSources,
+                        isOn: $settings.isMicrophoneEnabled
                     )
                 }
             }
@@ -71,18 +68,45 @@ struct RecordPageView: View {
         }
     }
 
-    private func sourceCard(title: String, systemImage: String, isOn: Binding<Bool>, summary: String) -> some View {
+    /// A source card with an optional on/off toggle (audio sources) or none
+    /// (screen — that's a pick, not a switch). Either way it always ends in
+    /// an "Изменить" link that jumps straight to the page where it's
+    /// actually configured, instead of just naming that page.
+    private func sourceCard(
+        title: String,
+        systemImage: String,
+        summary: String,
+        destination: SidebarSection,
+        isOn: Binding<Bool>? = nil
+    ) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                Label(title, systemImage: systemImage)
-                    .font(.headline)
+                HStack {
+                    Label(title, systemImage: systemImage)
+                        .font(.headline)
+                    Spacer()
+                    if let isOn {
+                        GlassToggleButton(systemImage: isOn.wrappedValue ? "checkmark" : "xmark", isOn: isOn)
+                            .help(isOn.wrappedValue ? "Выключить запись" : "Включить запись")
+                    }
+                }
+
                 Text(summary)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                GlassToggleButton("Записывать", systemImage: systemImage, isOn: isOn)
-                Text("Настрой источник на вкладке «Источники звука»")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+
+                Button {
+                    selection = destination
+                } label: {
+                    HStack(spacing: 2) {
+                        Text("Изменить")
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                    }
+                    .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
             }
         }
     }
@@ -102,5 +126,9 @@ struct RecordPageView: View {
         case .entireSystem: return "Весь системный звук"
         case .application(let app): return app.name
         }
+    }
+
+    private var microphoneSummary: String {
+        settings.isMicrophoneEnabled ? "Включён" : "Выключен"
     }
 }
