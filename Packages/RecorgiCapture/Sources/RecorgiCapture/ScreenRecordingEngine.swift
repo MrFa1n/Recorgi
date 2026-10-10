@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import AVFoundation
+import CoreMedia
 import ScreenCaptureKit
 import Combine
 import RecorgiCore
@@ -11,6 +12,7 @@ public enum RecordingError: LocalizedError {
     case noMicrophoneAvailable
     case microphoneSetupFailed
     case audioApplicationUnavailable
+    case writerSetupFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -19,6 +21,7 @@ public enum RecordingError: LocalizedError {
         case .noMicrophoneAvailable: return "No microphone available."
         case .microphoneSetupFailed: return "Could not set up the microphone input."
         case .audioApplicationUnavailable: return "The selected app is no longer available to capture audio from."
+        case .writerSetupFailed(let reason): return "Could not start writing the recording: \(reason)"
         }
     }
 }
@@ -47,8 +50,6 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     /// recording, so there's always a reminder of the exact boundary —
     /// excluded from the capture itself (see .area case below).
     private let areaHighlighter = AreaHighlighter()
-
-    private var sessionStarted = false
 
     public override init() {
         super.init()
@@ -93,15 +94,15 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         case .primaryDisplay:
             filter = SCContentFilter(display: primaryDisplay, excludingWindows: [])
             let scale = Self.backingScaleFactor(for: primaryDisplay.displayID)
-            pixelWidth = Int(Double(primaryDisplay.width) * scale)
-            pixelHeight = Int(Double(primaryDisplay.height) * scale)
+            pixelWidth = Self.evenified(Double(primaryDisplay.width) * scale)
+            pixelHeight = Self.evenified(Double(primaryDisplay.height) * scale)
 
         case .display(let info):
             let display = content.displays.first(where: { $0.displayID == info.displayID }) ?? primaryDisplay
             filter = SCContentFilter(display: display, excludingWindows: [])
             let scale = Self.backingScaleFactor(for: display.displayID)
-            pixelWidth = Int(Double(display.width) * scale)
-            pixelHeight = Int(Double(display.height) * scale)
+            pixelWidth = Self.evenified(Double(display.width) * scale)
+            pixelHeight = Self.evenified(Double(display.height) * scale)
 
         case .window(let info):
             guard let window = content.windows.first(where: { $0.windowID == info.windowID }) else {
@@ -109,8 +110,8 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             }
             filter = SCContentFilter(desktopIndependentWindow: window)
             let scale = NSScreen.main?.backingScaleFactor ?? 2
-            pixelWidth = Int(window.frame.width * scale)
-            pixelHeight = Int(window.frame.height * scale)
+            pixelWidth = Self.evenified(window.frame.width * scale)
+            pixelHeight = Self.evenified(window.frame.height * scale)
 
         case .area(let info, let rect):
             let display = content.displays.first(where: { $0.displayID == info.displayID }) ?? primaryDisplay
@@ -121,8 +122,8 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             }
             filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
             let scale = Self.backingScaleFactor(for: display.displayID)
-            pixelWidth = Int(rect.width * scale)
-            pixelHeight = Int(rect.height * scale)
+            pixelWidth = Self.evenified(rect.width * scale)
+            pixelHeight = Self.evenified(rect.height * scale)
             sourceRect = rect
         }
 
@@ -174,7 +175,21 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         }
 
         self.assetWriter = writer
-        self.sessionStarted = false
+
+        // Start the writer session explicitly, anchored to the current host
+        // time, *before* any capture begins — rather than lazily on
+        // whichever sample happens to arrive first. Video (ScreenCaptureKit)
+        // and microphone audio (AVCaptureSession) are two independent
+        // pipelines; letting "whichever fires first" pick the session's zero
+        // point made the choice a race, and timestamps from the losing
+        // pipeline could land outside what the writer considered valid,
+        // silently dropping samples — or worse. Every sample from every
+        // source is guaranteed to land at or after a time we captured
+        // ourselves, right here.
+        guard writer.startWriting() else {
+            throw RecordingError.writerSetupFailed(writer.error?.localizedDescription ?? "unknown error")
+        }
+        writer.startSession(atSourceTime: CMClockGetTime(CMClockGetHostTimeClock()))
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .main)
@@ -232,6 +247,12 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         if let writer = assetWriter, writer.status == .writing {
             await writer.finishWriting()
+            if writer.status == .failed {
+                // Surfaced, not swallowed — this is exactly how a recording
+                // silently came out with no moov atom (unplayable) before:
+                // finishWriting() failed and nothing ever reported it.
+                lastError = writer.error?.localizedDescription ?? "Recording failed to finalize."
+            }
         }
         assetWriter = nil
         videoInput = nil
@@ -291,13 +312,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     }
 
     private func append(_ sampleBuffer: CMSampleBuffer, to track: TrackKind) {
-        guard let writer = assetWriter, CMSampleBufferDataIsReady(sampleBuffer) else { return }
-
-        if !sessionStarted {
-            writer.startWriting()
-            writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-            sessionStarted = true
-        }
+        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
 
         switch track {
         case .video:
@@ -313,6 +328,13 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 microphoneInput?.append(sampleBuffer)
             }
         }
+    }
+
+    /// H.264 needs even width/height (4:2:0 chroma subsampling) — a free-
+    /// form window size or dragged area almost never lands on one naturally.
+    private static func evenified(_ value: Double) -> Int {
+        let rounded = Int(value)
+        return rounded - (rounded % 2)
     }
 
     private static func backingScaleFactor(for displayID: CGDirectDisplayID) -> Double {
