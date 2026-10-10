@@ -49,9 +49,11 @@ struct CaptureRegionView: View {
                         } else {
                             // Single monitor: "primary" and "this specific
                             // display" are the same thing, so show one row
-                            // instead of two identical-looking options.
+                            // instead of two identical-looking options —
+                            // using its real system name (e.g. "Built-in
+                            // Display"), the same one System Settings shows.
                             regionRow(
-                                title: "Основной дисплей",
+                                title: displays.first?.name ?? "Экран",
                                 subtitle: displays.first.map { "\($0.width)×\($0.height)" },
                                 isSelected: isSingleDisplaySelected
                             ) {
