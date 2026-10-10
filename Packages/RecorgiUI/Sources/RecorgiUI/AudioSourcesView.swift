@@ -23,7 +23,7 @@ struct AudioSourcesView: View {
                         Label("Системный звук", systemImage: "speaker.wave.2.fill")
                             .font(.headline)
 
-                        Toggle("Записывать системный звук", isOn: $settings.isSystemAudioEnabled)
+                        GlassToggleButton("Записывать системный звук", systemImage: "speaker.wave.2.fill", isOn: $settings.isSystemAudioEnabled)
 
                         Picker("Источник", selection: $settings.systemAudioScope) {
                             Text("Весь системный звук").tag(SystemAudioScope.entireSystem)
@@ -49,7 +49,7 @@ struct AudioSourcesView: View {
                         Label("Микрофон", systemImage: "mic.fill")
                             .font(.headline)
 
-                        Toggle("Записывать микрофон", isOn: $settings.isMicrophoneEnabled)
+                        GlassToggleButton("Записывать микрофон", systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
 
                         Picker("Устройство", selection: $settings.selectedMicrophoneID) {
                             Text("По умолчанию").tag(String?.none)
@@ -61,7 +61,7 @@ struct AudioSourcesView: View {
 
                         Divider()
 
-                        Toggle("Слушать микрофон во время записи", isOn: $settings.isMonitoringEnabled)
+                        GlassToggleButton("Слушать микрофон во время записи", systemImage: "headphones", isOn: $settings.isMonitoringEnabled)
                             .disabled(!settings.isMicrophoneEnabled)
 
                         Picker("Куда выводить", selection: $settings.selectedMonitoringOutputID) {

@@ -20,25 +20,24 @@ struct TransportBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 20) {
-            recordButton
+        GlassEffectContainer(spacing: 16) {
+            HStack(spacing: 16) {
+                recordButton
 
-            HStack(spacing: 14) {
-                iconToggle(isOn: $settings.isSystemAudioEnabled, icon: "speaker.wave.2.fill", help: "Системный звук")
-                iconToggle(isOn: $settings.isMicrophoneEnabled, icon: "mic.fill", help: "Микрофон")
-            }
+                GlassToggleButton(systemImage: "speaker.wave.2.fill", isOn: $settings.isSystemAudioEnabled)
+                    .help("Системный звук")
 
-            Spacer()
+                GlassToggleButton(systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
+                    .help("Микрофон")
 
-            if isRecording {
-                RecordingTimer(startedAt: startedAt)
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                if isRecording {
+                    RecordingTimer(startedAt: startedAt)
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                }
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .glassEffect(in: Capsule())
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
     }
@@ -59,19 +58,6 @@ struct TransportBar: View {
         }
         .buttonStyle(.glassProminent)
         .tint(isRecording ? .red : .accentColor)
-    }
-
-    private func iconToggle(isOn: Binding<Bool>, icon: String, help: String) -> some View {
-        Button {
-            isOn.wrappedValue.toggle()
-        } label: {
-            Image(systemName: icon)
-                .font(.system(size: 15))
-                .foregroundStyle(isOn.wrappedValue ? Color.accentColor : Color.secondary)
-                .frame(width: 30, height: 30)
-        }
-        .buttonStyle(.plain)
-        .help(help)
     }
 }
 
