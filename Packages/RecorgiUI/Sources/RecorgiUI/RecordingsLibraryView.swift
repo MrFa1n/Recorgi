@@ -29,6 +29,8 @@ struct RecordingsLibraryView: View {
                     ForEach(recordings) { recording in
                         GlassCard {
                             HStack {
+                                RecordingThumbnailView(url: recording.url)
+
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(recording.name)
                                         .font(.headline)
