@@ -12,7 +12,8 @@ struct RecorgiApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(permissions: permissions, settings: settings, engine: engine)
+                .frame(minWidth: 760, idealWidth: 940, minHeight: 480, idealHeight: 600)
         }
-        .windowResizability(.contentSize)
+        .defaultSize(width: 940, height: 600)
     }
 }
