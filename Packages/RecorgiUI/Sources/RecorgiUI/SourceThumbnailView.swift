@@ -12,8 +12,21 @@ struct SourceThumbnailView: View {
         case window(UInt32)
     }
 
+    /// Grid cards (displays, windows) use `.fixedHeight`: every card needs
+    /// to look the same regardless of each source's real aspect ratio
+    /// (a tall Keychain Access window next to a wide YouTube tab), so the
+    /// box height is constant and the image fill-crops into it. The area
+    /// picker's preview uses `.aspectFit` instead, because its crop-box
+    /// overlay is positioned by scaling the *display's own* proportions —
+    /// cropping the preview itself would make that math (and the preview)
+    /// wrong, so it must show the whole display, uncropped.
+    enum SizingMode {
+        case fixedHeight(CGFloat)
+        case aspectFit(CGFloat)
+    }
+
     let source: Source
-    var aspectRatio: CGFloat = 16.0 / 10.0
+    var sizing: SizingMode = .fixedHeight(130)
 
     @State private var image: NSImage?
 
@@ -34,7 +47,7 @@ struct SourceThumbnailView: View {
                     .tint(.white)
             }
         }
-        .aspectRatio(aspectRatio, contentMode: .fit)
+        .modifier(SizingModifier(sizing: sizing))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .task(id: source) {
             image = await load()
@@ -45,6 +58,22 @@ struct SourceThumbnailView: View {
         switch source {
         case .display(let id): return await loader.thumbnail(forDisplay: id)
         case .window(let id): return await loader.thumbnail(forWindow: id)
+        }
+    }
+
+    private struct SizingModifier: ViewModifier {
+        let sizing: SizingMode
+
+        func body(content: Content) -> some View {
+            switch sizing {
+            case .fixedHeight(let height):
+                content
+                    .frame(maxWidth: .infinity)
+                    .frame(height: height)
+            case .aspectFit(let ratio):
+                content
+                    .aspectRatio(ratio, contentMode: .fit)
+            }
         }
     }
 }

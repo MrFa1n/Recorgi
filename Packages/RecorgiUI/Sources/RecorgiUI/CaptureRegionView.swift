@@ -86,6 +86,9 @@ struct CaptureRegionView: View {
         .onChange(of: settings.captureRegion) {
             syncHighlighter()
         }
+        .onChange(of: mode) {
+            syncHighlighter()
+        }
         .onDisappear {
             areaHighlighter.hide()
         }
@@ -203,7 +206,7 @@ struct CaptureRegionView: View {
         let aspect = display.height > 0 ? CGFloat(display.width) / CGFloat(display.height) : 16.0 / 10.0
 
         return ZStack(alignment: .topLeading) {
-            SourceThumbnailView(source: .display(display.displayID), aspectRatio: aspect)
+            SourceThumbnailView(source: .display(display.displayID), sizing: .aspectFit(aspect))
 
             if let rect, display.width > 0, display.height > 0 {
                 GeometryReader { geo in
@@ -223,8 +226,14 @@ struct CaptureRegionView: View {
 
     /// Keeps the on-screen border in sync with the current selection — shown
     /// whenever an area is picked (and this page is open), hidden otherwise.
+    /// Only shown while the Область tab is actually open — not whenever
+    /// .area happens to be the saved selection. It used to track the saved
+    /// selection alone, so switching to Экран/Окно while an area was picked
+    /// left the border on screen behind the window; since this page's own
+    /// live thumbnails capture the whole screen, the border ended up
+    /// capturing *itself*, recursively, in every other tab's preview.
     private func syncHighlighter() {
-        if case .area(let display, let rect) = settings.captureRegion {
+        if mode == .area, case .area(let display, let rect) = settings.captureRegion {
             areaHighlighter.show(on: display.displayID, rect: rect)
         } else {
             areaHighlighter.hide()
