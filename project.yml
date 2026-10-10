@@ -1,0 +1,41 @@
+name: Recorgi
+options:
+  bundleIdPrefix: com.recorgi
+  deploymentTarget:
+    macOS: "14.0"
+
+packages:
+  RecorgiCore:
+    path: Packages/RecorgiCore
+  RecorgiCapture:
+    path: Packages/RecorgiCapture
+  RecorgiUI:
+    path: Packages/RecorgiUI
+
+targets:
+  Recorgi:
+    type: application
+    platform: macOS
+    sources:
+      - path: Recorgi
+    dependencies:
+      - package: RecorgiCore
+      - package: RecorgiCapture
+      - package: RecorgiUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.recorgi.app
+        PRODUCT_NAME: Recorgi
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
+    info:
+      path: Recorgi/Info.plist
+      properties:
+        CFBundleDisplayName: Recorgi
+        LSMinimumSystemVersion: "14.0"
+        NSMicrophoneUsageDescription: "Recorgi records your microphone when you turn it on as an audio source."
+        NSHumanReadableCopyright: "Recorgi contributors. Licensed under GPL-3.0-or-later."
+        LSApplicationCategoryType: public.app-category.video
