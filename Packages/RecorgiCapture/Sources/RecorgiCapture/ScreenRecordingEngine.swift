@@ -81,6 +81,9 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         videoFrameCount = 0
         droppedNotReadyCount = 0
         isHandlingWriterFailure = false
+        lastVideoPTS = nil
+        lastSystemAudioPTS = nil
+        lastMicrophonePTS = nil
 
         try FileManager.default.createDirectory(at: settings.saveDirectory, withIntermediateDirectories: true)
         DebugLog.fileURL = settings.saveDirectory.appendingPathComponent("recorgi-debug.log")
@@ -383,6 +386,20 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     private var videoFrameCount = 0
     private var droppedNotReadyCount = 0
 
+    // Video (ScreenCaptureKit) and microphone (AVCaptureSession) are two
+    // genuinely independent capture pipelines with their own clocks and
+    // buffering/jitter characteristics. AVAssetWriter's real-time
+    // multiplexer requires each track's presentation timestamps to be
+    // strictly increasing — a single out-of-order sample (accumulated
+    // clock drift between the two pipelines is enough, given a few
+    // seconds) fails the *entire* writer outright, not just that track.
+    // This is a documented failure mode for exactly this ScreenCaptureKit
+    // + AVAssetWriter combination; tracking the last PTS per track and
+    // dropping anything that doesn't advance is the standard fix.
+    private var lastVideoPTS: CMTime?
+    private var lastSystemAudioPTS: CMTime?
+    private var lastMicrophonePTS: CMTime?
+
     private func append(_ sampleBuffer: CMSampleBuffer, to track: TrackKind) {
         guard CMSampleBufferDataIsReady(sampleBuffer) else {
             DebugLog.write("append(\(track)): sample not ready, skipped")
@@ -398,16 +415,25 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             return
         }
 
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+
         switch track {
         case .video:
             guard let videoInput else { return }
+            if let last = lastVideoPTS, pts <= last {
+                DebugLog.write("dropped non-monotonic video frame: pts=\(pts.seconds) <= last=\(last.seconds)")
+                return
+            }
             if videoInput.isReadyForMoreMediaData {
                 let ok = videoInput.append(sampleBuffer)
                 videoFrameCount += 1
-                if !ok {
+                if ok {
+                    lastVideoPTS = pts
+                    if videoFrameCount == 1 || videoFrameCount % 60 == 0 {
+                        DebugLog.write("video frame #\(videoFrameCount) appended ok")
+                    }
+                } else {
                     DebugLog.write("videoInput.append() returned FALSE at frame \(videoFrameCount), writer.status=\(assetWriter?.status.rawValue ?? -1) error=\(Self.errorDetails(assetWriter?.error))")
-                } else if videoFrameCount == 1 || videoFrameCount % 60 == 0 {
-                    DebugLog.write("video frame #\(videoFrameCount) appended ok")
                 }
             } else {
                 droppedNotReadyCount += 1
@@ -416,12 +442,23 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 }
             }
         case .systemAudio:
+            if let last = lastSystemAudioPTS, pts <= last {
+                return
+            }
             if systemAudioInput?.isReadyForMoreMediaData == true {
-                systemAudioInput?.append(sampleBuffer)
+                if systemAudioInput?.append(sampleBuffer) == true {
+                    lastSystemAudioPTS = pts
+                }
             }
         case .microphone:
+            if let last = lastMicrophonePTS, pts <= last {
+                DebugLog.write("dropped non-monotonic microphone sample: pts=\(pts.seconds) <= last=\(last.seconds)")
+                return
+            }
             if microphoneInput?.isReadyForMoreMediaData == true {
-                microphoneInput?.append(sampleBuffer)
+                if microphoneInput?.append(sampleBuffer) == true {
+                    lastMicrophonePTS = pts
+                }
             }
         }
     }
