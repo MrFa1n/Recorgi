@@ -12,7 +12,12 @@ struct CaptureRegionView: View {
 
     private let sourceProvider = CaptureSourceProvider()
     private let areaSelector = AreaSelector()
-    private let areaHighlighter = AreaHighlighter()
+    // @State, not `let` — SwiftUI recreates this View struct on every
+    // re-render, and a plain `let` would silently spawn a fresh
+    // AreaHighlighter (with no handle to the window a previous instance
+    // already showed) each time, orphaning the on-screen border so hide()
+    // calls later stopped doing anything.
+    @State private var areaHighlighter = AreaHighlighter()
 
     var body: some View {
         ScrollView {
