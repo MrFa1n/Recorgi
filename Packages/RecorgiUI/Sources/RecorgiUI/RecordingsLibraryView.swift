@@ -44,6 +44,10 @@ struct RecordingsLibraryView: View {
     @State private var renameDraft = ""
     @State private var renameError: String?
     @FocusState private var renameFieldFocused: Bool
+    // @State, not `let` — same reason as CaptureRegionView's AreaHighlighter:
+    // SwiftUI recreates this View struct on every re-render, and a plain
+    // `let` would silently spawn a fresh, unstarted watcher each time.
+    @State private var watcher = RecordingsDirectoryWatcher()
 
     private let library = RecordingLibrary()
 
@@ -89,7 +93,13 @@ struct RecordingsLibraryView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task(id: saveDirectory) {
-            recordings = library.recordings(in: saveDirectory)
+            refresh()
+            watcher.start(watching: saveDirectory) {
+                refresh()
+            }
+        }
+        .onDisappear {
+            watcher.stop()
         }
         .alert("Ошибка", isPresented: Binding(
             get: { renameError != nil },
@@ -140,6 +150,16 @@ struct RecordingsLibraryView: View {
             GlassToggleButton("По дате", systemImage: "calendar.day.timeline.left", isOn: $groupByDate)
 
             Spacer()
+
+            Button {
+                refresh()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.capsule)
+            .help("Обновить список записей")
         }
     }
 
@@ -262,6 +282,10 @@ struct RecordingsLibraryView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "LLLL yyyy"
         return formatter.string(from: date).capitalized
+    }
+
+    private func refresh() {
+        recordings = library.recordings(in: saveDirectory)
     }
 
     // MARK: - Rename
