@@ -277,6 +277,13 @@ struct CaptureRegionView: View {
         }
     }
 
+    // Thumbnail (130) + spacing (10) + text block (36) + vertical padding
+    // (10 top + 10 bottom) — pinned explicitly on the outer VStack too, not
+    // just its pieces, so the button's glass background can't end up a
+    // different size per card for any reason this doesn't already account
+    // for.
+    private let sourceCardHeight: CGFloat = 196
+
     private func sourceCardButton(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 10) {
@@ -292,21 +299,27 @@ struct CaptureRegionView: View {
                     }
                 }
 
+                // Fixed height for title+subtitle together (not just the
+                // thumbnail) — two reserved lines regardless of whether
+                // subtitle is actually present, so every card in the grid
+                // is exactly the same height instead of each one hugging
+                // its own content.
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    Text(subtitle ?? " ")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .opacity(subtitle == nil ? 0 : 1)
                 }
                 .padding(.horizontal, 2)
+                .frame(height: 36, alignment: .top)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: sourceCardHeight)
         }
         .buttonBorderShape(.roundedRectangle)
     }
