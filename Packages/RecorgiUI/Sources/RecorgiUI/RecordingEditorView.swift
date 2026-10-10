@@ -65,7 +65,7 @@ struct RecordingEditorView: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 680, minHeight: 540)
+        .frame(minWidth: 680, idealWidth: 760, minHeight: 540, idealHeight: 620)
         .task { await loadAsset() }
         .onDisappear { teardownPlayer() }
         .alert("Ошибка", isPresented: Binding(
@@ -93,17 +93,30 @@ struct RecordingEditorView: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
 
-            Spacer()
+            Spacer(minLength: 12)
 
-            Picker("Скорость", selection: $speed) {
-                ForEach(speeds, id: \.self) { value in
-                    Text("\(formattedSpeed(value))×").tag(value)
+            HStack(spacing: 6) {
+                Image(systemName: "speedometer")
+                    .foregroundStyle(.secondary)
+
+                // Picker's own label ("Скорость") is hidden: left to the
+                // default, macOS lays it out *inside* the same row as the
+                // segmented control, sharing its width — under any size
+                // pressure (e.g. the sheet getting narrower) that text
+                // column collapses and wraps one letter per line instead
+                // of just truncating. The speedometer icon above already
+                // says what this control does.
+                Picker("Скорость", selection: $speed) {
+                    ForEach(speeds, id: \.self) { value in
+                        Text("\(formattedSpeed(value))×").tag(value)
+                    }
                 }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 220)
-            .onChange(of: speed) { _, newValue in
-                if isPlaying { player.rate = Float(newValue) }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .onChange(of: speed) { _, newValue in
+                    if isPlaying { player.rate = Float(newValue) }
+                }
             }
         }
     }
