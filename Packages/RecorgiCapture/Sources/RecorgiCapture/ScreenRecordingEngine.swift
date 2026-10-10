@@ -152,6 +152,15 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             sourceRect = rect
         }
 
+        // Uncapped, SCStream delivers frames as fast as the display refreshes
+        // (120Hz on ProMotion) at full resolution — a real-time H.264 encode
+        // session can't sustain that data rate and fails outright partway
+        // in (reproducibly ~1 second in at full-display resolution; small
+        // area captures stayed under the threshold, which is why only those
+        // worked). 30fps is plenty for screen recording and well within
+        // what the encoder can sustain continuously.
+        let frameRate = 30
+
         let config = SCStreamConfiguration()
         config.width = pixelWidth
         config.height = pixelHeight
@@ -159,15 +168,26 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         config.capturesAudio = capturesWholeSystemAudio
         config.sampleRate = 48_000
         config.channelCount = 2
+        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(frameRate))
         if let sourceRect {
             config.sourceRect = sourceRect
             config.destinationRect = CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight)
         }
 
+        // Also stop leaving the bitrate to AVFoundation's automatic guess —
+        // for a 3024x1964 real-time capture that guess can land somewhere
+        // the encoder can't sustain either. Scaled from a known-reasonable
+        // 8 Mbps at 1080p30.
+        let estimatedBitRate = Int((Double(pixelWidth * pixelHeight) / (1920.0 * 1080.0)) * 8_000_000)
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: pixelWidth,
-            AVVideoHeightKey: pixelHeight
+            AVVideoHeightKey: pixelHeight,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: estimatedBitRate,
+                AVVideoExpectedSourceFrameRateKey: frameRate,
+                AVVideoMaxKeyFrameIntervalKey: frameRate
+            ]
         ]
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         videoInput.expectsMediaDataInRealTime = true
