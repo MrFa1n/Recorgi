@@ -2,7 +2,6 @@ import Foundation
 import AppKit
 import AVFoundation
 import CoreMedia
-import VideoToolbox
 import ScreenCaptureKit
 import Combine
 import RecorgiCore
@@ -14,6 +13,7 @@ public enum RecordingError: LocalizedError {
     case microphoneSetupFailed
     case audioApplicationUnavailable
     case writerSetupFailed(String)
+    case recordingSetupFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -23,26 +23,45 @@ public enum RecordingError: LocalizedError {
         case .microphoneSetupFailed: return "Could not set up the microphone input."
         case .audioApplicationUnavailable: return "The selected app is no longer available to capture audio from."
         case .writerSetupFailed(let reason): return "Could not start writing the recording: \(reason)"
+        case .recordingSetupFailed(let reason): return "Could not start recording: \(reason)"
         }
     }
 }
 
-/// Captures the main display plus, independently, system audio (via
-/// ScreenCaptureKit, no virtual-audio-device required) and the microphone
-/// (via a plain AVCaptureSession), muxing all of it into one .mov with the
-/// video on one track and each enabled audio source on its own track.
+/// Captures the main display (or a window/area) to a file. The default path
+/// hands the whole job — video, system audio, and microphone — to
+/// ScreenCaptureKit's own SCRecordingOutput (macOS 15+), which owns its own
+/// AVAssetWriter internally and synchronizes all three tracks itself. This
+/// replaced an earlier hand-rolled pipeline that manually multiplexed
+/// ScreenCaptureKit's video/audio samples and a separate AVCaptureSession's
+/// microphone samples into one AVAssetWriter ourselves — two independent
+/// capture pipelines with their own clocks were a persistent source of
+/// corrupted recordings. The one case SCRecordingOutput can't express —
+/// recording a single specific app's system audio while still showing the
+/// whole screen — still goes through that manual pipeline (see
+/// performStartLegacyAppScopedAudio below).
 @MainActor
 public final class ScreenRecordingEngine: NSObject, ObservableObject {
     @Published public private(set) var state: RecordingState = .idle
     @Published public private(set) var lastError: String?
 
     private var stream: SCStream?
+    private var recordingOutput: SCRecordingOutput?
+    private var recordingStopContinuation: CheckedContinuation<Void, Never>?
+
+    // Legacy pipeline — only used when systemAudioScope == .application,
+    // where SCRecordingOutput can't isolate one app's audio on a stream
+    // that's also showing the whole screen.
     private var appAudioStream: SCStream?
     private var assetWriter: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var systemAudioInput: AVAssetWriterInput?
     private var microphoneInput: AVAssetWriterInput?
 
+    // In the primary (SCRecordingOutput) path this session is live
+    // monitoring only — ScreenCaptureKit itself captures the microphone
+    // into the file via captureMicrophone. In the legacy path it both
+    // records and (optionally) monitors.
     private var microphoneSession: AVCaptureSession?
     private var microphoneRelay: MicrophoneSampleRelay?
     private let microphoneQueue = DispatchQueue(label: "com.recorgi.microphone-output")
@@ -52,33 +71,41 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     /// excluded from the capture itself (see .area case below).
     private let areaHighlighter = AreaHighlighter()
 
+    /// Without this, macOS App Nap/idle-throttling can degrade this
+    /// process's real-time threads shortly after the window stops being
+    /// key/frontmost. ProcessInfo's activity token is Apple's documented
+    /// way to tell the OS not to throttle real-time background work like a
+    /// recording in progress.
+    private var recordingActivityToken: NSObjectProtocol?
+
     public override init() {
         super.init()
     }
 
     public func start(settings: RecordingSettings) async throws {
         guard case .idle = state else { return }
-        // Claimed immediately, before any `await` — start() does a lot of
-        // asynchronous work (fetching shareable content, starting streams),
-        // and state stayed .idle for the whole duration of that previously.
-        // A second tap on Record during that window re-entered this same
-        // function, which silently overwrote assetWriter/videoInput/stream
-        // etc. out from under the first, still-running call — orphaning its
-        // writer mid-write with nothing left to ever call finishWriting() on
-        // it. That produced exactly the "no moov atom" unplayable files:
-        // no error anywhere, because nothing ever got the chance to fail.
+        // Claimed immediately, before any `await` — a second tap on Record
+        // while setup is still in flight used to re-enter this function and
+        // silently overwrite state out from under the first call, orphaning
+        // whatever it had already started.
         state = .starting
         lastError = nil
 
         do {
             try await performStart(settings: settings)
         } catch {
+            endRecordingActivity()
             state = .idle
             throw error
         }
     }
 
     private func performStart(settings: RecordingSettings) async throws {
+        recordingActivityToken = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled, .suddenTerminationDisabled, .automaticTerminationDisabled],
+            reason: "Screen recording in progress"
+        )
+
         videoFrameCount = 0
         droppedNotReadyCount = 0
         isHandlingWriterFailure = false
@@ -90,7 +117,6 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         DebugLog.fileURL = settings.saveDirectory.appendingPathComponent("recorgi-debug.log")
         let fileURL = settings.saveDirectory.appendingPathComponent(Self.timestampedFilename())
         DebugLog.write("=== start: region=\(settings.captureRegion) sysAudio=\(settings.isSystemAudioEnabled) scope=\(settings.systemAudioScope) mic=\(settings.isMicrophoneEnabled) file=\(fileURL.lastPathComponent)")
-        let writer = try AVAssetWriter(outputURL: fileURL, fileType: .mov)
 
         // Show the highlight border (if applicable) before fetching
         // shareable content, so our own window already exists and can be
@@ -115,23 +141,23 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         let capturesWholeSystemAudio = settings.isSystemAudioEnabled && !isAppScoped
 
         let filter: SCContentFilter
-        let pixelWidth: Int
-        let pixelHeight: Int
+        let rawPixelWidth: Int
+        let rawPixelHeight: Int
         var sourceRect: CGRect?
 
         switch settings.captureRegion {
         case .primaryDisplay:
             filter = SCContentFilter(display: primaryDisplay, excludingWindows: [])
             let scale = Self.backingScaleFactor(for: primaryDisplay.displayID)
-            pixelWidth = Self.evenified(Double(primaryDisplay.width) * scale)
-            pixelHeight = Self.evenified(Double(primaryDisplay.height) * scale)
+            rawPixelWidth = Self.evenified(Double(primaryDisplay.width) * scale)
+            rawPixelHeight = Self.evenified(Double(primaryDisplay.height) * scale)
 
         case .display(let info):
             let display = content.displays.first(where: { $0.displayID == info.displayID }) ?? primaryDisplay
             filter = SCContentFilter(display: display, excludingWindows: [])
             let scale = Self.backingScaleFactor(for: display.displayID)
-            pixelWidth = Self.evenified(Double(display.width) * scale)
-            pixelHeight = Self.evenified(Double(display.height) * scale)
+            rawPixelWidth = Self.evenified(Double(display.width) * scale)
+            rawPixelHeight = Self.evenified(Double(display.height) * scale)
 
         case .window(let info):
             guard let window = content.windows.first(where: { $0.windowID == info.windowID }) else {
@@ -139,8 +165,8 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             }
             filter = SCContentFilter(desktopIndependentWindow: window)
             let scale = NSScreen.main?.backingScaleFactor ?? 2
-            pixelWidth = Self.evenified(window.frame.width * scale)
-            pixelHeight = Self.evenified(window.frame.height * scale)
+            rawPixelWidth = Self.evenified(window.frame.width * scale)
+            rawPixelHeight = Self.evenified(window.frame.height * scale)
 
         case .area(let info, let rect):
             let display = content.displays.first(where: { $0.displayID == info.displayID }) ?? primaryDisplay
@@ -150,19 +176,34 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 excludedWindows = [ownWindow]
             }
             filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
-            let scale = Self.backingScaleFactor(for: display.displayID)
-            pixelWidth = Self.evenified(rect.width * scale)
-            pixelHeight = Self.evenified(rect.height * scale)
+            // Deliberately *not* multiplying by backingScaleFactor here like
+            // the other cases do: a destinationRect sized larger than
+            // sourceRect forces ScreenCaptureKit to resize every frame, not
+            // just crop it, and an isolated repeat test (RECORGI_STRESS_ONLY
+            // =smallarea, fresh process each time) showed video reliably
+            // stopping at frame 17 whenever that resize was in play —
+            // reproduced identically under both the old manual pipeline and
+            // the new SCRecordingOutput one, so the resize step itself is
+            // the trigger. Keeping destinationRect the same size as
+            // sourceRect makes this a pure crop, which is stable.
+            rawPixelWidth = Self.evenified(rect.width)
+            rawPixelHeight = Self.evenified(rect.height)
             sourceRect = rect
         }
 
-        // Uncapped, SCStream delivers frames as fast as the display refreshes
-        // (120Hz on ProMotion) at full resolution — a real-time H.264 encode
-        // session can't sustain that data rate and fails outright partway
-        // in (reproducibly ~1 second in at full-display resolution; small
-        // area captures stayed under the threshold, which is why only those
-        // worked). 30fps is plenty for screen recording and well within
-        // what the encoder can sustain continuously.
+        // Cap the encode resolution at 1920 on the longer edge — keeps
+        // real-time H.264 encoding comfortably sustainable regardless of
+        // the physical display's native (often Retina) resolution.
+        let maxDimension = 1920.0
+        let longerEdge = Double(max(rawPixelWidth, rawPixelHeight))
+        let downscale = longerEdge > maxDimension ? maxDimension / longerEdge : 1.0
+        let pixelWidth = Self.evenified(Double(rawPixelWidth) * downscale)
+        let pixelHeight = Self.evenified(Double(rawPixelHeight) * downscale)
+
+        // SCStream delivers frames as fast as the display refreshes (120Hz
+        // on ProMotion) unless capped — 30fps is plenty for screen
+        // recording and well within what the encoder can sustain
+        // continuously at the resolution above.
         let frameRate = 30
 
         let config = SCStreamConfiguration()
@@ -178,31 +219,94 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             config.destinationRect = CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight)
         }
 
-        // Also stop leaving the bitrate to AVFoundation's automatic guess —
-        // for a 3024x1964 real-time capture that guess can land somewhere
-        // the encoder can't sustain either. Scaled from a known-reasonable
-        // 8 Mbps at 1080p30.
+        if isAppScoped {
+            try await performStartLegacyAppScopedAudio(
+                settings: settings,
+                content: content,
+                primaryDisplay: primaryDisplay,
+                filter: filter,
+                config: config,
+                pixelWidth: pixelWidth,
+                pixelHeight: pixelHeight,
+                frameRate: frameRate,
+                fileURL: fileURL
+            )
+        } else {
+            try await performStartRecordingOutput(
+                settings: settings,
+                filter: filter,
+                config: config,
+                fileURL: fileURL
+            )
+        }
+    }
+
+    /// The default, robust path: ScreenCaptureKit owns the whole file —
+    /// video, system audio, and microphone all synchronized internally by
+    /// SCRecordingOutput. No manual sample handling, no PTS bookkeeping.
+    private func performStartRecordingOutput(
+        settings: RecordingSettings,
+        filter: SCContentFilter,
+        config: SCStreamConfiguration,
+        fileURL: URL
+    ) async throws {
+        config.captureMicrophone = settings.isMicrophoneEnabled
+        if settings.isMicrophoneEnabled, let deviceID = settings.selectedMicrophoneID {
+            config.microphoneCaptureDeviceID = deviceID
+        }
+
+        let stream = SCStream(filter: filter, configuration: config, delegate: self)
+
+        let recordingConfig = SCRecordingOutputConfiguration()
+        recordingConfig.outputURL = fileURL
+        recordingConfig.outputFileType = .mov
+        recordingConfig.videoCodecType = .h264
+        let recordingOutput = SCRecordingOutput(configuration: recordingConfig, delegate: self)
+
+        // Must be added before startCapture() to guarantee the first frame
+        // lands in the recording.
+        try stream.addRecordingOutput(recordingOutput)
+        try await stream.startCapture()
+
+        self.stream = stream
+        self.recordingOutput = recordingOutput
+        DebugLog.write("SCRecordingOutput: stream.startCapture() ok, pixelSize=\(config.width)x\(config.height)")
+
+        if settings.isMicrophoneEnabled, settings.isMonitoringEnabled {
+            try setUpMicrophoneMonitoring(
+                deviceID: settings.selectedMicrophoneID,
+                monitoringOutputID: settings.selectedMonitoringOutputID
+            )
+            microphoneSession?.startRunning()
+        }
+
+        state = .recording(startedAt: Date())
+    }
+
+    /// Only reached when systemAudioScope == .application: SCRecordingOutput
+    /// can't isolate one app's audio on a stream that's also showing the
+    /// whole screen, so this keeps the original manual AVAssetWriter
+    /// pipeline (two independent ScreenCaptureKit streams plus a separate
+    /// AVCaptureSession for the microphone, muxed by hand with per-track
+    /// monotonic-PTS guards).
+    private func performStartLegacyAppScopedAudio(
+        settings: RecordingSettings,
+        content: SCShareableContent,
+        primaryDisplay: SCDisplay,
+        filter: SCContentFilter,
+        config: SCStreamConfiguration,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        frameRate: Int,
+        fileURL: URL
+    ) async throws {
+        let writer = try AVAssetWriter(outputURL: fileURL, fileType: .mov)
+
         let estimatedBitRate = Int((Double(pixelWidth * pixelHeight) / (1920.0 * 1080.0)) * 8_000_000)
-        // Force the *software* H.264 encoder. recorgi-debug.log traced the
-        // "operation could not be completed" failures to the hardware
-        // VideoToolbox encoder dying mid-session (AVFoundationErrorDomain
-        // -11800 / OSStatus -16122) at an unpredictable frame count — even
-        // on a freshly launched process, so it isn't about our own app
-        // leaving a previous session's encoder uncleaned. That's a hardware
-        // encoder contention/malfunction state at the OS level, and software
-        // encoding sidesteps it entirely. Costs more CPU; any frame the
-        // encoder can't keep up with is already handled by the
-        // isReadyForMoreMediaData drop path in append() below — a choppier
-        // recording, never a corrupted one.
-        let encoderSpecification: [String: Any] = [
-            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String: false,
-            kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder as String: false
-        ]
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: pixelWidth,
             AVVideoHeightKey: pixelHeight,
-            AVVideoEncoderSpecificationKey: encoderSpecification,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: estimatedBitRate,
                 AVVideoExpectedSourceFrameRateKey: frameRate,
@@ -220,19 +324,17 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             AVNumberOfChannelsKey: 2
         ]
 
-        if settings.isSystemAudioEnabled {
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-            input.expectsMediaDataInRealTime = true
-            writer.add(input)
-            self.systemAudioInput = input
-        }
+        let systemInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+        systemInput.expectsMediaDataInRealTime = true
+        writer.add(systemInput)
+        self.systemAudioInput = systemInput
 
         if settings.isMicrophoneEnabled {
             let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
             input.expectsMediaDataInRealTime = true
             writer.add(input)
             self.microphoneInput = input
-            try setUpMicrophoneCapture(
+            try setUpMicrophoneRecording(
                 deviceID: settings.selectedMicrophoneID,
                 monitoringEnabled: settings.isMonitoringEnabled,
                 monitoringOutputID: settings.selectedMonitoringOutputID
@@ -241,54 +343,40 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         self.assetWriter = writer
 
-        // Start the writer session explicitly, anchored to the current host
-        // time, *before* any capture begins — rather than lazily on
-        // whichever sample happens to arrive first. Video (ScreenCaptureKit)
-        // and microphone audio (AVCaptureSession) are two independent
-        // pipelines; letting "whichever fires first" pick the session's zero
-        // point made the choice a race, and timestamps from the losing
-        // pipeline could land outside what the writer considered valid,
-        // silently dropping samples — or worse. Every sample from every
-        // source is guaranteed to land at or after a time we captured
-        // ourselves, right here.
         guard writer.startWriting() else {
-            DebugLog.write("writer.startWriting() FAILED: \(Self.errorDetails(writer.error))")
+            DebugLog.write("legacy: writer.startWriting() FAILED: \(Self.errorDetails(writer.error))")
             throw RecordingError.writerSetupFailed(writer.error?.localizedDescription ?? "unknown error")
         }
         writer.startSession(atSourceTime: CMClockGetTime(CMClockGetHostTimeClock()))
-        DebugLog.write("writer.startWriting() ok, pixelSize=\(pixelWidth)x\(pixelHeight), status=\(writer.status.rawValue)")
+        DebugLog.write("legacy: writer.startWriting() ok, pixelSize=\(pixelWidth)x\(pixelHeight), status=\(writer.status.rawValue)")
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .main)
-        if capturesWholeSystemAudio {
-            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
-        }
         try await stream.startCapture()
         self.stream = stream
-        DebugLog.write("stream.startCapture() ok")
+        DebugLog.write("legacy: stream.startCapture() ok")
 
-        if settings.isSystemAudioEnabled, case .application(let app) = settings.systemAudioScope {
-            guard let match = content.applications.first(where: { $0.processID == app.processID }) else {
-                throw RecordingError.audioApplicationUnavailable
-            }
-            let appFilter = SCContentFilter(display: primaryDisplay, including: [match], exceptingWindows: [])
-            let appConfig = SCStreamConfiguration()
-            // We only want this stream's audio; keep its video output tiny
-            // since we never register a .screen handler for it.
-            appConfig.width = 2
-            appConfig.height = 2
-            appConfig.capturesAudio = true
-            appConfig.sampleRate = 48_000
-            appConfig.channelCount = 2
-
-            let appStream = SCStream(filter: appFilter, configuration: appConfig, delegate: self)
-            try appStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
-            try await appStream.startCapture()
-            self.appAudioStream = appStream
+        guard case .application(let app) = settings.systemAudioScope,
+              let match = content.applications.first(where: { $0.processID == app.processID }) else {
+            throw RecordingError.audioApplicationUnavailable
         }
+        let appFilter = SCContentFilter(display: primaryDisplay, including: [match], exceptingWindows: [])
+        let appConfig = SCStreamConfiguration()
+        // We only want this stream's audio; keep its video output tiny
+        // since we never register a .screen handler for it.
+        appConfig.width = 2
+        appConfig.height = 2
+        appConfig.capturesAudio = true
+        appConfig.sampleRate = 48_000
+        appConfig.channelCount = 2
+
+        let appStream = SCStream(filter: appFilter, configuration: appConfig, delegate: self)
+        try appStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
+        try await appStream.startCapture()
+        self.appAudioStream = appStream
 
         microphoneSession?.startRunning()
-        DebugLog.write("mic session started (enabled=\(settings.isMicrophoneEnabled)); state -> recording")
+        DebugLog.write("legacy: mic session started (enabled=\(settings.isMicrophoneEnabled)); state -> recording")
         state = .recording(startedAt: Date())
     }
 
@@ -297,12 +385,27 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             DebugLog.write("stop() called but state is \(state) — ignored")
             return
         }
-        DebugLog.write("stop() called, writer.status=\(assetWriter?.status.rawValue.description ?? "nil")")
         state = .stopping
 
         microphoneSession?.stopRunning()
         microphoneSession = nil
         microphoneRelay = nil
+
+        if let recordingOutput, let stream {
+            DebugLog.write("stop(): removing SCRecordingOutput")
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                recordingStopContinuation = continuation
+                do {
+                    try stream.removeRecordingOutput(recordingOutput)
+                } catch {
+                    DebugLog.write("removeRecordingOutput threw: \(Self.errorDetails(error))")
+                    lastError = error.localizedDescription
+                    recordingStopContinuation = nil
+                    continuation.resume()
+                }
+            }
+            self.recordingOutput = nil
+        }
 
         if let stream {
             try? await stream.stopCapture()
@@ -329,16 +432,12 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             case .failed:
                 // The writer can fail *during* capture (an append() call
                 // hitting a real encoder/format error), not just when
-                // finishWriting() is called — the old `writer.status ==
-                // .writing` guard only checked the latter, so a writer that
-                // had already died mid-recording was silently skipped here:
-                // no finishWriting() call, no error, just an abandoned file
-                // with no moov atom. This branch is what actually surfaces
-                // that failure now.
-                DebugLog.write("writer already .failed at stop() time, error=\(Self.errorDetails(writer.error))")
+                // finishWriting() is called — only checking the .writing
+                // case here would silently skip surfacing that failure.
+                DebugLog.write("legacy: writer already .failed at stop() time, error=\(Self.errorDetails(writer.error))")
                 lastError = writer.error?.localizedDescription ?? "Recording failed while writing."
             case .cancelled, .completed, .unknown:
-                DebugLog.write("writer status at stop() time: \(writer.status.rawValue) (no action)")
+                DebugLog.write("legacy: writer status at stop() time: \(writer.status.rawValue) (no action)")
             @unknown default:
                 break
             }
@@ -349,24 +448,21 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         microphoneInput = nil
 
         areaHighlighter.hide()
-
-        // The hardware H.264 encoder session VideoToolbox hands AVAssetWriter
-        // doesn't always finish releasing the instant stopCapture()/
-        // finishWriting() return. recorgi-debug.log shows the pipeline itself
-        // is sound now (PTS fix made the *first* recording per app launch
-        // finish cleanly every time) — but the second and third recordings in
-        // the same run die mid-stream at a different, unpredictable frame
-        // count with AVFoundationErrorDomain -11800 wrapping OSStatus -16122,
-        // which is exactly the signature of the next encode session claiming
-        // the hardware encoder before the previous one actually let go. A
-        // short cooldown here, before state goes back to .idle and a new
-        // recording is allowed to start, gives it that time.
-        try? await Task.sleep(nanoseconds: 700_000_000)
+        endRecordingActivity()
 
         state = .idle
     }
 
-    private func setUpMicrophoneCapture(deviceID: String?, monitoringEnabled: Bool, monitoringOutputID: String?) throws {
+    private func endRecordingActivity() {
+        if let recordingActivityToken {
+            ProcessInfo.processInfo.endActivity(recordingActivityToken)
+            self.recordingActivityToken = nil
+        }
+    }
+
+    /// Records the microphone into the file by hand — only used by the
+    /// legacy app-scoped-audio path.
+    private func setUpMicrophoneRecording(deviceID: String?, monitoringEnabled: Bool, monitoringOutputID: String?) throws {
         let session = AVCaptureSession()
 
         let device: AVCaptureDevice?
@@ -409,6 +505,34 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         self.microphoneRelay = relay
     }
 
+    /// Live-listen only, no recording — used alongside the primary
+    /// SCRecordingOutput path, where ScreenCaptureKit itself captures the
+    /// microphone straight into the file via captureMicrophone.
+    private func setUpMicrophoneMonitoring(deviceID: String?, monitoringOutputID: String?) throws {
+        let session = AVCaptureSession()
+
+        let device: AVCaptureDevice?
+        if let deviceID, let match = AVCaptureDevice(uniqueID: deviceID) {
+            device = match
+        } else {
+            device = AVCaptureDevice.default(for: .audio)
+        }
+        guard let device else { throw RecordingError.noMicrophoneAvailable }
+
+        let input = try AVCaptureDeviceInput(device: device)
+        guard session.canAddInput(input) else { throw RecordingError.microphoneSetupFailed }
+        session.addInput(input)
+
+        let preview = AVCaptureAudioPreviewOutput()
+        preview.outputDeviceUniqueID = monitoringOutputID
+        guard session.canAddOutput(preview) else { throw RecordingError.microphoneSetupFailed }
+        session.addOutput(preview)
+
+        self.microphoneSession = session
+    }
+
+    // MARK: - Legacy manual muxing (app-scoped audio only)
+
     private enum TrackKind {
         case video, systemAudio, microphone
     }
@@ -417,24 +541,18 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     private var droppedNotReadyCount = 0
 
     // Video (ScreenCaptureKit) and microphone (AVCaptureSession) are two
-    // genuinely independent capture pipelines with their own clocks and
-    // buffering/jitter characteristics. AVAssetWriter's real-time
-    // multiplexer requires each track's presentation timestamps to be
-    // strictly increasing — a single out-of-order sample (accumulated
-    // clock drift between the two pipelines is enough, given a few
-    // seconds) fails the *entire* writer outright, not just that track.
-    // This is a documented failure mode for exactly this ScreenCaptureKit
-    // + AVAssetWriter combination; tracking the last PTS per track and
-    // dropping anything that doesn't advance is the standard fix.
+    // genuinely independent capture pipelines with their own clocks in this
+    // legacy path. AVAssetWriter's real-time multiplexer requires each
+    // track's presentation timestamps to be strictly increasing — a single
+    // out-of-order sample fails the *entire* writer outright, not just that
+    // track. Tracking the last PTS per track and dropping anything that
+    // doesn't advance is the standard fix.
     private var lastVideoPTS: CMTime?
     private var lastSystemAudioPTS: CMTime?
     private var lastMicrophonePTS: CMTime?
 
     private func append(_ sampleBuffer: CMSampleBuffer, to track: TrackKind) {
-        guard CMSampleBufferDataIsReady(sampleBuffer) else {
-            DebugLog.write("append(\(track)): sample not ready, skipped")
-            return
-        }
+        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
 
         // The writer can die mid-recording (an append() hitting a real
         // encoder/format error) well before anyone presses Stop. Catch that
@@ -450,41 +568,27 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         switch track {
         case .video:
             guard let videoInput else { return }
-            if let last = lastVideoPTS, pts <= last {
-                DebugLog.write("dropped non-monotonic video frame: pts=\(pts.seconds) <= last=\(last.seconds)")
-                return
-            }
+            if let last = lastVideoPTS, pts <= last { return }
             if videoInput.isReadyForMoreMediaData {
                 let ok = videoInput.append(sampleBuffer)
                 videoFrameCount += 1
                 if ok {
                     lastVideoPTS = pts
-                    if videoFrameCount == 1 || videoFrameCount % 60 == 0 {
-                        DebugLog.write("video frame #\(videoFrameCount) appended ok")
-                    }
                 } else {
-                    DebugLog.write("videoInput.append() returned FALSE at frame \(videoFrameCount), writer.status=\(assetWriter?.status.rawValue ?? -1) error=\(Self.errorDetails(assetWriter?.error))")
+                    DebugLog.write("legacy: videoInput.append() returned FALSE at frame \(videoFrameCount), writer.status=\(assetWriter?.status.rawValue ?? -1) error=\(Self.errorDetails(assetWriter?.error))")
                 }
             } else {
                 droppedNotReadyCount += 1
-                if droppedNotReadyCount == 1 || droppedNotReadyCount % 30 == 0 {
-                    DebugLog.write("video frame dropped, not ready (count=\(droppedNotReadyCount))")
-                }
             }
         case .systemAudio:
-            if let last = lastSystemAudioPTS, pts <= last {
-                return
-            }
+            if let last = lastSystemAudioPTS, pts <= last { return }
             if systemAudioInput?.isReadyForMoreMediaData == true {
                 if systemAudioInput?.append(sampleBuffer) == true {
                     lastSystemAudioPTS = pts
                 }
             }
         case .microphone:
-            if let last = lastMicrophonePTS, pts <= last {
-                DebugLog.write("dropped non-monotonic microphone sample: pts=\(pts.seconds) <= last=\(last.seconds)")
-                return
-            }
+            if let last = lastMicrophonePTS, pts <= last { return }
             if microphoneInput?.isReadyForMoreMediaData == true {
                 if microphoneInput?.append(sampleBuffer) == true {
                     lastMicrophonePTS = pts
@@ -499,7 +603,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         guard case .recording = state, !isHandlingWriterFailure else { return }
         isHandlingWriterFailure = true
         let message = assetWriter?.error?.localizedDescription ?? "Recording failed while writing."
-        DebugLog.write("handleWriterFailure() triggered from append(): \(Self.errorDetails(assetWriter?.error))")
+        DebugLog.write("legacy: handleWriterFailure() triggered from append(): \(Self.errorDetails(assetWriter?.error))")
         lastError = message
         Task {
             await stop()
@@ -556,9 +660,6 @@ extension ScreenRecordingEngine: SCStreamOutput, SCStreamDelegate {
             case .audio:
                 self.append(boxed.buffer, to: .systemAudio)
             case .microphone:
-                // Newer SDKs can capture the microphone through
-                // ScreenCaptureKit itself; we still use our own
-                // AVCaptureSession mic path below, so ignore this case.
                 break
             @unknown default:
                 break
@@ -572,6 +673,34 @@ extension ScreenRecordingEngine: SCStreamOutput, SCStreamDelegate {
             self.lastError = error.localizedDescription
         }
         Task { await self.stop() }
+    }
+}
+
+extension ScreenRecordingEngine: SCRecordingOutputDelegate {
+    // SCRecordingOutput doesn't document which queue these land on (unlike
+    // SCStreamOutput's explicit sampleHandlerQueue), so hop via Task rather
+    // than assuming main-actor isolation here.
+    nonisolated public func recordingOutputDidStartRecording(_ recordingOutput: SCRecordingOutput) {
+        Task { @MainActor in
+            DebugLog.write("SCRecordingOutput: recording started")
+        }
+    }
+
+    nonisolated public func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
+        Task { @MainActor in
+            DebugLog.write("SCRecordingOutput: didFailWithError \(Self.errorDetails(error))")
+            self.lastError = error.localizedDescription
+            self.recordingStopContinuation?.resume()
+            self.recordingStopContinuation = nil
+        }
+    }
+
+    nonisolated public func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+        Task { @MainActor in
+            DebugLog.write("SCRecordingOutput: finished recording ok")
+            self.recordingStopContinuation?.resume()
+            self.recordingStopContinuation = nil
+        }
     }
 }
 
