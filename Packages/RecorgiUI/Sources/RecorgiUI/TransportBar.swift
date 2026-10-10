@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import RecorgiCore
 import RecorgiCapture
 
@@ -57,6 +58,7 @@ struct TransportBar: View {
                 .frame(width: 40, height: 40)
         }
         .buttonStyle(.glassProminent)
+        .buttonBorderShape(.circle)
         .tint(isRecording ? .red : .accentColor)
     }
 }

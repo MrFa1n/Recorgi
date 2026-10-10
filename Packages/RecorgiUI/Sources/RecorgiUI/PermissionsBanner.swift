@@ -34,6 +34,7 @@ struct PermissionsBanner: View {
                 permissions.refresh()
             }
             .buttonStyle(.glass)
+            .buttonBorderShape(.capsule)
             .padding(.top, 2)
         }
         .padding(12)
@@ -52,6 +53,7 @@ struct PermissionsBanner: View {
                     }
                 }
                 .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
             }
             Text(detail)
                 .font(.caption)

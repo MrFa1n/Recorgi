@@ -38,16 +38,20 @@ struct RecordingsLibraryView: View {
                                     NSWorkspace.shared.activateFileViewerSelecting([recording.url])
                                 } label: {
                                     Image(systemName: "folder")
+                                        .frame(width: 20, height: 20)
                                 }
                                 .buttonStyle(.glass)
+                                .buttonBorderShape(.capsule)
                                 .help("Показать в Finder")
 
                                 Button {
                                     NSWorkspace.shared.open(recording.url)
                                 } label: {
                                     Image(systemName: "play.fill")
+                                        .frame(width: 20, height: 20)
                                 }
                                 .buttonStyle(.glassProminent)
+                                .buttonBorderShape(.capsule)
                                 .help("Воспроизвести")
                             }
                         }

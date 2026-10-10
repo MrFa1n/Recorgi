@@ -16,11 +16,14 @@ struct GlassToggleButton: View {
     }
 
     var body: some View {
-        if isOn {
-            toggle.buttonStyle(.glassProminent)
-        } else {
-            toggle.buttonStyle(.glass)
+        Group {
+            if isOn {
+                toggle.buttonStyle(.glassProminent)
+            } else {
+                toggle.buttonStyle(.glass)
+            }
         }
+        .buttonBorderShape(.capsule)
     }
 
     private var toggle: some View {
@@ -28,7 +31,11 @@ struct GlassToggleButton: View {
             if let title {
                 Label(title, systemImage: systemImage)
             } else {
+                // Fixed size so icon-only toggles (e.g. the two quick
+                // controls in the transport bar) match regardless of how
+                // wide each SF Symbol glyph naturally is.
                 Image(systemName: systemImage)
+                    .frame(width: 20, height: 20)
             }
         }
         .toggleStyle(.button)

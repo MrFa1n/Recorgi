@@ -26,6 +26,7 @@ struct GeneralSettingsView: View {
                                 chooseSaveDirectory()
                             }
                             .buttonStyle(.glass)
+                            .buttonBorderShape(.capsule)
                         }
                     }
                 }
