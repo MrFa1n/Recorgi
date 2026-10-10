@@ -71,7 +71,15 @@ final class AreaHighlightWindow: NSWindow {
 private final class AreaHighlightView: NSView {
     var margin: CGFloat = 12
     var selectionRect: CGRect = .zero {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            // The border strips (see updateTrackingAreas) are sized off
+            // selectionRect's width/height — a pure move (same size, new
+            // window position) doesn't need them rebuilt, a resize does.
+            if oldValue.size != selectionRect.size {
+                updateTrackingAreas()
+            }
+        }
     }
     var displayBounds: CGRect = .zero
     var isInteractive = false {
@@ -93,6 +101,13 @@ private final class AreaHighlightView: NSView {
     private var dragMode: DragMode?
     private let handleSize: CGFloat = 10
     private let minimumSize: CGFloat = 40
+    // How close to the border line itself counts as "on" it, for both
+    // hit-testing and the move cursor. Outside this margin (interior or
+    // exterior), this window claims neither clicks nor the cursor — it
+    // behaves exactly as if no area were selected at all, so apps
+    // underneath stay fully usable (their own cursor, their own clicks)
+    // right up to the border.
+    private let borderHitMargin: CGFloat = 6
 
     init() {
         super.init(frame: .zero)
@@ -129,31 +144,62 @@ private final class AreaHighlightView: NSView {
         }
     }
 
-    // Since the window is already cropped to the interactive zone, every
-    // point inside this view counts.
+    // Only the border line (within borderHitMargin) or a handle counts —
+    // not the whole interior, and not the margin space outside the rect.
+    // That's what makes everything except the frame itself pass straight
+    // through to whatever's underneath, cursor included.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard isInteractive else { return nil }
-        return bounds.contains(point) ? self : nil
+        return (handle(at: point) != nil || isNearBorder(point)) ? self : nil
+    }
+
+    private func isNearBorder(_ point: NSPoint) -> Bool {
+        let rect = localHighlightRect
+        guard rect.insetBy(dx: -borderHitMargin, dy: -borderHitMargin).contains(point) else { return false }
+        // A rect inset past zero size (tiny selections) simply never
+        // contains anything, so the whole thing correctly counts as
+        // "border" with no safe interior — no extra guard needed.
+        return !rect.insetBy(dx: borderHitMargin, dy: borderHitMargin).contains(point)
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas { removeTrackingArea(area) }
         guard isInteractive else { return }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.activeAlways, .cursorUpdate, .mouseMoved, .mouseEnteredAndExited],
-            owner: self,
-            userInfo: nil
-        ))
+        // Four thin strips along the border, not the whole bounds — an
+        // NSTrackingArea can't express a "frame" shape directly, and
+        // tracking areas fire mouseMoved/cursorUpdate purely by geometric
+        // containment, independent of hitTest, so covering the interior
+        // here would still let this window hijack the cursor there even
+        // though clicks already pass through.
+        let rect = localHighlightRect
+        let m = borderHitMargin
+        let strips = [
+            NSRect(x: rect.minX - m, y: rect.maxY - m, width: rect.width + m * 2, height: m * 2),   // top
+            NSRect(x: rect.minX - m, y: rect.minY - m, width: rect.width + m * 2, height: m * 2),   // bottom
+            NSRect(x: rect.minX - m, y: rect.minY - m, width: m * 2, height: rect.height + m * 2),  // left
+            NSRect(x: rect.maxX - m, y: rect.minY - m, width: m * 2, height: rect.height + m * 2)   // right
+        ]
+        for strip in strips {
+            addTrackingArea(NSTrackingArea(
+                rect: strip,
+                options: [.activeAlways, .cursorUpdate, .mouseMoved, .mouseEnteredAndExited],
+                owner: self,
+                userInfo: nil
+            ))
+        }
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        cursor(at: convert(event.locationInWindow, from: nil)).set()
+        cursor(at: convert(event.locationInWindow, from: nil))?.set()
     }
 
     override func mouseMoved(with event: NSEvent) {
-        cursor(at: convert(event.locationInWindow, from: nil)).set()
+        cursor(at: convert(event.locationInWindow, from: nil))?.set()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.arrow.set()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -162,7 +208,7 @@ private final class AreaHighlightView: NSView {
         let globalMouse = NSEvent.mouseLocation
         if let handle = handle(at: point) {
             dragMode = .resize(handle: handle, startMouseGlobal: globalMouse, startRect: selectionRect)
-        } else if localHighlightRect.contains(point) {
+        } else if isNearBorder(point) {
             dragMode = .move(startMouseGlobal: globalMouse, startRect: selectionRect)
         } else {
             dragMode = nil
@@ -217,18 +263,23 @@ private final class AreaHighlightView: NSView {
         return Handle.allCases.first { handleRect(for: $0, in: rect).insetBy(dx: -handleSize / 2, dy: -handleSize / 2).contains(point) }
     }
 
-    private func cursor(at point: NSPoint) -> NSCursor {
-        guard let handle = handle(at: point) else {
-            return localHighlightRect.contains(point) ? .openHand : .arrow
+    // nil means "don't touch the cursor" — in practice this only gets
+    // asked about points inside one of the border tracking strips, so it's
+    // a safety net rather than the normal path, but returning nil (instead
+    // of defaulting to .arrow) keeps this view from ever fighting whatever
+    // cursor the app underneath wants outside the frame.
+    private func cursor(at point: NSPoint) -> NSCursor? {
+        if let handle = handle(at: point) {
+            switch handle {
+            case .top, .bottom: return .resizeUpDown
+            case .left, .right: return .resizeLeftRight
+            // AppKit has no public diagonal resize cursor; crosshair at
+            // least reads as "this corner does something" rather than
+            // showing the wrong directional cursor.
+            case .topLeft, .topRight, .bottomLeft, .bottomRight: return .crosshair
+            }
         }
-        switch handle {
-        case .top, .bottom: return .resizeUpDown
-        case .left, .right: return .resizeLeftRight
-        // AppKit has no public diagonal resize cursor; crosshair at least
-        // reads as "this corner does something" rather than showing the
-        // wrong directional cursor.
-        case .topLeft, .topRight, .bottomLeft, .bottomRight: return .crosshair
-        }
+        return isNearBorder(point) ? .openHand : nil
     }
 
     private func position(of handle: Handle, in rect: CGRect) -> NSPoint {
