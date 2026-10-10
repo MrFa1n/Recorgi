@@ -57,6 +57,17 @@ struct CaptureRegionView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                // Invisible but present in the hierarchy, so .keyboardShortcut
+                // claims Escape for the whole page regardless of what, if
+                // anything, currently has focus — the reliable way to handle
+                // a page-level shortcut in SwiftUI on macOS, rather than
+                // fighting over which view is first responder.
+                Button("", action: resetAreaSelection)
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+
                 Text("Область записи")
                     .font(.largeTitle.bold())
 
@@ -338,5 +349,14 @@ struct CaptureRegionView: View {
             }
             isSelectingArea = false
         }
+    }
+
+    /// Esc while an area is already picked: clear it and land back on a
+    /// plain default — syncHighlighter() (driven by the resulting
+    /// settings.captureRegion change) takes care of hiding the border.
+    private func resetAreaSelection() {
+        guard mode == .area, case .area = settings.captureRegion else { return }
+        settings.captureRegion = .primaryDisplay
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
