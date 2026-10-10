@@ -78,8 +78,14 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     }
 
     private func performStart(settings: RecordingSettings) async throws {
+        videoFrameCount = 0
+        droppedNotReadyCount = 0
+        isHandlingWriterFailure = false
+
         try FileManager.default.createDirectory(at: settings.saveDirectory, withIntermediateDirectories: true)
+        DebugLog.fileURL = settings.saveDirectory.appendingPathComponent("recorgi-debug.log")
         let fileURL = settings.saveDirectory.appendingPathComponent(Self.timestampedFilename())
+        DebugLog.write("=== start: region=\(settings.captureRegion) sysAudio=\(settings.isSystemAudioEnabled) scope=\(settings.systemAudioScope) mic=\(settings.isMicrophoneEnabled) file=\(fileURL.lastPathComponent)")
         let writer = try AVAssetWriter(outputURL: fileURL, fileType: .mov)
 
         // Show the highlight border (if applicable) before fetching
@@ -206,9 +212,11 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         // source is guaranteed to land at or after a time we captured
         // ourselves, right here.
         guard writer.startWriting() else {
+            DebugLog.write("writer.startWriting() FAILED: \(writer.error?.localizedDescription ?? "nil")")
             throw RecordingError.writerSetupFailed(writer.error?.localizedDescription ?? "unknown error")
         }
         writer.startSession(atSourceTime: CMClockGetTime(CMClockGetHostTimeClock()))
+        DebugLog.write("writer.startWriting() ok, pixelSize=\(pixelWidth)x\(pixelHeight), status=\(writer.status.rawValue)")
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .main)
@@ -217,6 +225,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         }
         try await stream.startCapture()
         self.stream = stream
+        DebugLog.write("stream.startCapture() ok")
 
         if settings.isSystemAudioEnabled, case .application(let app) = settings.systemAudioScope {
             guard let match = content.applications.first(where: { $0.processID == app.processID }) else {
@@ -239,11 +248,16 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         }
 
         microphoneSession?.startRunning()
+        DebugLog.write("mic session started (enabled=\(settings.isMicrophoneEnabled)); state -> recording")
         state = .recording(startedAt: Date())
     }
 
     public func stop() async {
-        guard case .recording = state else { return }
+        guard case .recording = state else {
+            DebugLog.write("stop() called but state is \(state) — ignored")
+            return
+        }
+        DebugLog.write("stop() called, writer.status=\(assetWriter?.status.rawValue.description ?? "nil")")
         state = .stopping
 
         microphoneSession?.stopRunning()
@@ -268,6 +282,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             switch writer.status {
             case .writing:
                 await writer.finishWriting()
+                DebugLog.write("finishWriting() returned, status=\(writer.status.rawValue) error=\(writer.error?.localizedDescription ?? "none")")
                 if writer.status == .failed {
                     lastError = writer.error?.localizedDescription ?? "Recording failed to finalize."
                 }
@@ -280,9 +295,10 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 // no finishWriting() call, no error, just an abandoned file
                 // with no moov atom. This branch is what actually surfaces
                 // that failure now.
+                DebugLog.write("writer already .failed at stop() time, error=\(writer.error?.localizedDescription ?? "none")")
                 lastError = writer.error?.localizedDescription ?? "Recording failed while writing."
             case .cancelled, .completed, .unknown:
-                break
+                DebugLog.write("writer status at stop() time: \(writer.status.rawValue) (no action)")
             @unknown default:
                 break
             }
@@ -344,8 +360,14 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         case video, systemAudio, microphone
     }
 
+    private var videoFrameCount = 0
+    private var droppedNotReadyCount = 0
+
     private func append(_ sampleBuffer: CMSampleBuffer, to track: TrackKind) {
-        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+        guard CMSampleBufferDataIsReady(sampleBuffer) else {
+            DebugLog.write("append(\(track)): sample not ready, skipped")
+            return
+        }
 
         // The writer can die mid-recording (an append() hitting a real
         // encoder/format error) well before anyone presses Stop. Catch that
@@ -358,8 +380,20 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         switch track {
         case .video:
-            if videoInput?.isReadyForMoreMediaData == true {
-                videoInput?.append(sampleBuffer)
+            guard let videoInput else { return }
+            if videoInput.isReadyForMoreMediaData {
+                let ok = videoInput.append(sampleBuffer)
+                videoFrameCount += 1
+                if !ok {
+                    DebugLog.write("videoInput.append() returned FALSE at frame \(videoFrameCount), writer.status=\(assetWriter?.status.rawValue ?? -1) error=\(assetWriter?.error?.localizedDescription ?? "none")")
+                } else if videoFrameCount == 1 || videoFrameCount % 60 == 0 {
+                    DebugLog.write("video frame #\(videoFrameCount) appended ok")
+                }
+            } else {
+                droppedNotReadyCount += 1
+                if droppedNotReadyCount == 1 || droppedNotReadyCount % 30 == 0 {
+                    DebugLog.write("video frame dropped, not ready (count=\(droppedNotReadyCount))")
+                }
             }
         case .systemAudio:
             if systemAudioInput?.isReadyForMoreMediaData == true {
@@ -377,7 +411,9 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     private func handleWriterFailure() {
         guard case .recording = state, !isHandlingWriterFailure else { return }
         isHandlingWriterFailure = true
-        lastError = assetWriter?.error?.localizedDescription ?? "Recording failed while writing."
+        let message = assetWriter?.error?.localizedDescription ?? "Recording failed while writing."
+        DebugLog.write("handleWriterFailure() triggered from append(): \(message)")
+        lastError = message
         Task {
             await stop()
             isHandlingWriterFailure = false
@@ -436,6 +472,7 @@ extension ScreenRecordingEngine: SCStreamOutput, SCStreamDelegate {
 
     nonisolated public func stream(_ stream: SCStream, didStopWithError error: Error) {
         MainActor.assumeIsolated {
+            DebugLog.write("SCStream didStopWithError: \(error)")
             self.lastError = error.localizedDescription
         }
         Task { await self.stop() }
