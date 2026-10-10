@@ -97,7 +97,8 @@ struct CaptureRegionView: View {
                             .font(.headline)
 
                         if case .area(let display, let rect) = settings.captureRegion {
-                            Text("Выбрано: \(Int(rect.width))×\(Int(rect.height)) на «\(display.name)»")
+                            areaPreview(display: display, rect: rect)
+                            Text("\(Int(rect.width))×\(Int(rect.height)) на «\(display.name)»")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -106,7 +107,7 @@ struct CaptureRegionView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        Button("Выбрать область…") {
+                        Button(isAreaSelected ? "Изменить область…" : "Выбрать область…") {
                             selectArea()
                         }
                         .buttonStyle(.glass)
@@ -169,6 +170,39 @@ struct CaptureRegionView: View {
             }
         }
         .buttonBorderShape(.capsule)
+    }
+
+    private var isAreaSelected: Bool {
+        if case .area = settings.captureRegion { return true }
+        return false
+    }
+
+    /// A small to-scale map of the display with the selected rect
+    /// highlighted, so it's obvious at a glance *where* the chosen area is —
+    /// not just its width/height as numbers.
+    private func areaPreview(display: DisplayInfo, rect: CGRect) -> some View {
+        let aspect = display.height > 0 ? CGFloat(display.width) / CGFloat(display.height) : 16.0 / 10.0
+        let previewWidth: CGFloat = 220
+        let previewHeight = previewWidth / aspect
+
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.secondary.opacity(0.1))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+
+            Rectangle()
+                .fill(Color.accentColor.opacity(0.35))
+                .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1.5))
+                .frame(
+                    width: previewWidth * (rect.width / CGFloat(display.width)),
+                    height: previewHeight * (rect.height / CGFloat(display.height))
+                )
+                .offset(
+                    x: previewWidth * (rect.minX / CGFloat(display.width)),
+                    y: previewHeight * (rect.minY / CGFloat(display.height))
+                )
+        }
+        .frame(width: previewWidth, height: previewHeight)
     }
 
     private func appIcon(for processID: Int32) -> NSImage? {

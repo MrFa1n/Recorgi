@@ -30,6 +30,9 @@ final class AreaSelectionWindow: NSWindow {
         makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         makeFirstResponder(contentView)
+        if let contentView {
+            invalidateCursorRects(for: contentView)
+        }
     }
 
     private func finish(with rect: CGRect?) {
@@ -44,6 +47,13 @@ private final class AreaSelectionView: NSView {
     private var currentRect: NSRect?
 
     override var acceptsFirstResponder: Bool { true }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        // Makes it obvious this overlay is in "drag to select" mode, same as
+        // the system screenshot tool.
+        addCursorRect(bounds, cursor: .crosshair)
+    }
 
     override func mouseDown(with event: NSEvent) {
         startPoint = convert(event.locationInWindow, from: nil)
