@@ -48,6 +48,7 @@ public struct CaptureSourceProvider: Sendable {
                     windowID: window.windowID,
                     title: window.title ?? "",
                     appName: window.owningApplication?.applicationName ?? "",
+                    processID: window.owningApplication?.processID ?? 0,
                     width: Int(window.frame.width),
                     height: Int(window.frame.height)
                 )

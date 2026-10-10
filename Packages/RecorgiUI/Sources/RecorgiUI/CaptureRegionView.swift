@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import RecorgiCore
 import RecorgiCapture
 
@@ -76,6 +77,7 @@ struct CaptureRegionView: View {
 
                         ForEach(windows) { window in
                             regionRow(
+                                icon: appIcon(for: window.processID),
                                 title: window.title,
                                 subtitle: window.appName,
                                 isSelected: settings.captureRegion == .window(window)
@@ -125,22 +127,27 @@ struct CaptureRegionView: View {
     }
 
     @ViewBuilder
-    private func regionRow(title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func regionRow(icon: NSImage? = nil, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
         // A ternary can't pick between GlassButtonStyle and
         // GlassProminentButtonStyle (different concrete types), so the
         // branch has to happen at the view level instead.
         if isSelected {
-            regionButton(title: title, subtitle: subtitle, isSelected: true, action: action)
+            regionButton(icon: icon, title: title, subtitle: subtitle, isSelected: true, action: action)
                 .buttonStyle(.glassProminent)
         } else {
-            regionButton(title: title, subtitle: subtitle, isSelected: false, action: action)
+            regionButton(icon: icon, title: title, subtitle: subtitle, isSelected: false, action: action)
                 .buttonStyle(.glass)
         }
     }
 
-    private func regionButton(title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func regionButton(icon: NSImage?, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
+            HStack(spacing: 10) {
+                if let icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 20, height: 20)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                     if let subtitle {
@@ -156,6 +163,10 @@ struct CaptureRegionView: View {
             }
         }
         .buttonBorderShape(.capsule)
+    }
+
+    private func appIcon(for processID: Int32) -> NSImage? {
+        NSRunningApplication(processIdentifier: processID)?.icon
     }
 
     /// On a single-monitor setup, .primaryDisplay and .display(thatDisplay)
