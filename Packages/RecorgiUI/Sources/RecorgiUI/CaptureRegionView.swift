@@ -31,6 +31,7 @@ struct CaptureRegionView: View {
                             // calls primary (can change), while picking a
                             // specific one locks to that physical display.
                             regionRow(
+                                systemImage: "display",
                                 title: "Основной дисплей",
                                 subtitle: "Текущий главный экран — следует настройке системы",
                                 isSelected: settings.captureRegion == .primaryDisplay
@@ -40,6 +41,7 @@ struct CaptureRegionView: View {
 
                             ForEach(displays) { display in
                                 regionRow(
+                                    systemImage: displayIcon(for: display),
                                     title: display.name,
                                     subtitle: "\(display.width)×\(display.height)",
                                     isSelected: settings.captureRegion == .display(display)
@@ -54,6 +56,7 @@ struct CaptureRegionView: View {
                             // using its real system name (e.g. "Built-in
                             // Display"), the same one System Settings shows.
                             regionRow(
+                                systemImage: displays.first.map(displayIcon(for:)) ?? "display",
                                 title: displays.first?.name ?? "Экран",
                                 subtitle: displays.first.map { "\($0.width)×\($0.height)" },
                                 isSelected: isSingleDisplaySelected
@@ -127,25 +130,28 @@ struct CaptureRegionView: View {
     }
 
     @ViewBuilder
-    private func regionRow(icon: NSImage? = nil, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func regionRow(icon: NSImage? = nil, systemImage: String? = nil, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
         // A ternary can't pick between GlassButtonStyle and
         // GlassProminentButtonStyle (different concrete types), so the
         // branch has to happen at the view level instead.
         if isSelected {
-            regionButton(icon: icon, title: title, subtitle: subtitle, isSelected: true, action: action)
+            regionButton(icon: icon, systemImage: systemImage, title: title, subtitle: subtitle, isSelected: true, action: action)
                 .buttonStyle(.glassProminent)
         } else {
-            regionButton(icon: icon, title: title, subtitle: subtitle, isSelected: false, action: action)
+            regionButton(icon: icon, systemImage: systemImage, title: title, subtitle: subtitle, isSelected: false, action: action)
                 .buttonStyle(.glass)
         }
     }
 
-    private func regionButton(icon: NSImage?, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func regionButton(icon: NSImage?, systemImage: String?, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 if let icon {
                     Image(nsImage: icon)
                         .resizable()
+                        .frame(width: 20, height: 20)
+                } else if let systemImage {
+                    Image(systemName: systemImage)
                         .frame(width: 20, height: 20)
                 }
                 VStack(alignment: .leading, spacing: 2) {
@@ -167,6 +173,12 @@ struct CaptureRegionView: View {
 
     private func appIcon(for processID: Int32) -> NSImage? {
         NSRunningApplication(processIdentifier: processID)?.icon
+    }
+
+    /// Mirrors how System Settings distinguishes displays: a laptop glyph
+    /// for the built-in panel, a plain monitor glyph for anything external.
+    private func displayIcon(for display: DisplayInfo) -> String {
+        display.name.localizedCaseInsensitiveContains("built-in") ? "laptopcomputer" : "display"
     }
 
     /// On a single-monitor setup, .primaryDisplay and .display(thatDisplay)
