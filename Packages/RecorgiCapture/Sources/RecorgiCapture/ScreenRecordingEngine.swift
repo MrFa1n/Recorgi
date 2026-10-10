@@ -43,6 +43,11 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     private var microphoneRelay: MicrophoneSampleRelay?
     private let microphoneQueue = DispatchQueue(label: "com.recorgi.microphone-output")
 
+    /// Keeps a visible border around the capture area for the whole
+    /// recording, so there's always a reminder of the exact boundary —
+    /// excluded from the capture itself (see .area case below).
+    private let areaHighlighter = AreaHighlighter()
+
     private var sessionStarted = false
 
     public override init() {
@@ -56,6 +61,15 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         try FileManager.default.createDirectory(at: settings.saveDirectory, withIntermediateDirectories: true)
         let fileURL = settings.saveDirectory.appendingPathComponent(Self.timestampedFilename())
         let writer = try AVAssetWriter(outputURL: fileURL, fileType: .mov)
+
+        // Show the highlight border (if applicable) before fetching
+        // shareable content, so our own window already exists and can be
+        // matched + excluded from the capture filter below.
+        if case .area(let info, let rect) = settings.captureRegion {
+            areaHighlighter.show(on: info.displayID, rect: rect)
+        } else {
+            areaHighlighter.hide()
+        }
 
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let primaryDisplay = content.displays.first else {
@@ -100,7 +114,12 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         case .area(let info, let rect):
             let display = content.displays.first(where: { $0.displayID == info.displayID }) ?? primaryDisplay
-            filter = SCContentFilter(display: display, excludingWindows: [])
+            var excludedWindows: [SCWindow] = []
+            if let highlightID = areaHighlighter.highlightedWindowID,
+               let ownWindow = content.windows.first(where: { $0.windowID == highlightID }) {
+                excludedWindows = [ownWindow]
+            }
+            filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
             let scale = Self.backingScaleFactor(for: display.displayID)
             pixelWidth = Int(rect.width * scale)
             pixelHeight = Int(rect.height * scale)
@@ -218,6 +237,8 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         videoInput = nil
         systemAudioInput = nil
         microphoneInput = nil
+
+        areaHighlighter.hide()
 
         state = .idle
     }

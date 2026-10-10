@@ -3,8 +3,9 @@ import AppKit
 /// Full-screen transparent overlay that lets the user drag out a rectangle,
 /// the same interaction as macOS's built-in screenshot tool (⌘⇧5)'s area
 /// selection: drag to mark it, the dimmed-except-selection view holds in
-/// place so you can actually see what you picked, Enter confirms, Escape
-/// cancels. Reports the rect in the view's own local coordinate space
+/// place so you can actually see what you picked. Enter confirms; Escape is
+/// two-stage — clears the current rect first, cancels the whole overlay on
+/// the next press. Reports the rect in the view's own local coordinate space
 /// (bottom-left origin) — the caller converts to whatever space it needs.
 final class AreaSelectionWindow: NSWindow {
     private let completion: (CGRect?) -> Void
@@ -58,7 +59,6 @@ private final class AreaSelectionView: NSView {
     private var currentRect: NSRect?
     private var isConfirming = false
 
-    private static let instructions = "Перетащи, чтобы выделить область  ·  Enter — подтвердить  ·  Esc — отмена"
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -127,7 +127,17 @@ private final class AreaSelectionView: NSView {
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
         case 53: // Escape
-            onComplete?(nil)
+            if currentRect != nil {
+                // First Escape: just clear the drawn rect, stay open so the
+                // user can draw a new one — matches the system screenshot
+                // tool's "start over" behavior.
+                currentRect = nil
+                isConfirming = false
+                needsDisplay = true
+            } else {
+                // Second Escape (nothing drawn): cancel out entirely.
+                onComplete?(nil)
+            }
         case 36, 76: // Return, Enter (numpad)
             if isConfirming, let rect = currentRect {
                 onComplete?(rect)
@@ -163,7 +173,8 @@ private final class AreaSelectionView: NSView {
             .font: NSFont.systemFont(ofSize: 13, weight: .medium),
             .foregroundColor: NSColor.white
         ]
-        let text = Self.instructions as NSString
+        let escHint = currentRect != nil ? "Esc — сбросить" : "Esc — отмена"
+        let text = "Перетащи, чтобы выделить область  ·  Enter — подтвердить  ·  \(escHint)" as NSString
         let textSize = text.size(withAttributes: attributes)
         let padding: CGFloat = 10
         let origin = NSPoint(x: (bounds.width - textSize.width) / 2, y: bounds.height - textSize.height - 32)

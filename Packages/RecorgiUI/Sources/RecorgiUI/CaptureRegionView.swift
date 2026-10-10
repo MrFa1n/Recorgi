@@ -12,6 +12,7 @@ struct CaptureRegionView: View {
 
     private let sourceProvider = CaptureSourceProvider()
     private let areaSelector = AreaSelector()
+    private let areaHighlighter = AreaHighlighter()
 
     var body: some View {
         ScrollView {
@@ -127,6 +128,25 @@ struct CaptureRegionView: View {
         }
         .task {
             await loadSources()
+        }
+        .onAppear {
+            syncHighlighter()
+        }
+        .onChange(of: settings.captureRegion) {
+            syncHighlighter()
+        }
+        .onDisappear {
+            areaHighlighter.hide()
+        }
+    }
+
+    /// Keeps the on-screen border in sync with the current selection — shown
+    /// whenever an area is picked (and this page is open), hidden otherwise.
+    private func syncHighlighter() {
+        if case .area(let display, let rect) = settings.captureRegion {
+            areaHighlighter.show(on: display.displayID, rect: rect)
+        } else {
+            areaHighlighter.hide()
         }
     }
 
