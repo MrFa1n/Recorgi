@@ -23,21 +23,39 @@ struct CaptureRegionView: View {
                         Label("Экран", systemImage: "display")
                             .font(.headline)
 
-                        regionRow(
-                            title: "Основной дисплей",
-                            subtitle: nil,
-                            isSelected: settings.captureRegion == .primaryDisplay
-                        ) {
-                            settings.captureRegion = .primaryDisplay
-                        }
-
-                        ForEach(displays) { display in
+                        if displays.count > 1 {
+                            // Multiple monitors: the distinction actually
+                            // matters here — "Основной дисплей" follows
+                            // whichever screen System Settings currently
+                            // calls primary (can change), while picking a
+                            // specific one locks to that physical display.
                             regionRow(
-                                title: display.name,
-                                subtitle: "\(display.width)×\(display.height)",
-                                isSelected: settings.captureRegion == .display(display)
+                                title: "Основной дисплей",
+                                subtitle: "Текущий главный экран — следует настройке системы",
+                                isSelected: settings.captureRegion == .primaryDisplay
                             ) {
-                                settings.captureRegion = .display(display)
+                                settings.captureRegion = .primaryDisplay
+                            }
+
+                            ForEach(displays) { display in
+                                regionRow(
+                                    title: display.name,
+                                    subtitle: "\(display.width)×\(display.height)",
+                                    isSelected: settings.captureRegion == .display(display)
+                                ) {
+                                    settings.captureRegion = .display(display)
+                                }
+                            }
+                        } else {
+                            // Single monitor: "primary" and "this specific
+                            // display" are the same thing, so show one row
+                            // instead of two identical-looking options.
+                            regionRow(
+                                title: "Основной дисплей",
+                                subtitle: displays.first.map { "\($0.width)×\($0.height)" },
+                                isSelected: isSingleDisplaySelected
+                            ) {
+                                settings.captureRegion = .primaryDisplay
                             }
                         }
                     }
@@ -136,6 +154,16 @@ struct CaptureRegionView: View {
             }
         }
         .buttonBorderShape(.capsule)
+    }
+
+    /// On a single-monitor setup, .primaryDisplay and .display(thatDisplay)
+    /// are functionally identical — treat either as "selected" so the merged
+    /// row still lights up correctly even if the region was picked before
+    /// (e.g. a second monitor got unplugged since).
+    private var isSingleDisplaySelected: Bool {
+        if case .primaryDisplay = settings.captureRegion { return true }
+        if case .display(let picked) = settings.captureRegion, picked == displays.first { return true }
+        return false
     }
 
     private func loadSources() async {
