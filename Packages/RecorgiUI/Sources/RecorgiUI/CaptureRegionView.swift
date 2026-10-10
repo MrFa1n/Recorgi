@@ -81,6 +81,16 @@ struct CaptureRegionView: View {
             await loadSources()
         }
         .onAppear {
+            // Only this page's own AreaHighlighter instance becomes
+            // draggable — ScreenRecordingEngine owns a completely separate
+            // one for the actual recording, which never calls this and
+            // stays click-through.
+            areaHighlighter.setInteractive(true)
+            areaHighlighter.onRectChange = { newRect in
+                if case .area(let display, _) = settings.captureRegion {
+                    settings.captureRegion = .area(display, newRect)
+                }
+            }
             syncHighlighter()
         }
         .onChange(of: settings.captureRegion) {
@@ -179,7 +189,7 @@ struct CaptureRegionView: View {
         VStack(alignment: .leading, spacing: 14) {
             if case .area(let display, let rect) = settings.captureRegion {
                 areaPreview(display: display, rect: rect)
-                Text("\(Int(rect.width))×\(Int(rect.height)) на «\(display.name)»")
+                Text("\(Int(rect.width))×\(Int(rect.height)) на «\(display.name)» · перетащи рамку на экране, чтобы подвинуть или изменить размер")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else if let primary = displays.first {
