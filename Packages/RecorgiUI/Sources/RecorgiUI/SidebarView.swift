@@ -12,6 +12,7 @@ struct SidebarView: View {
                 row(.recordings)
             }
             Section("Настройки") {
+                row(.captureRegion)
                 row(.audioSources)
                 row(.general)
             }
