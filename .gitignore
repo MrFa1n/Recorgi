@@ -1,0 +1,35 @@
+# Xcode
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+*.xcworkspace/*
+!*.xcworkspace/contents.xcworkspacedata
+xcuserdata/
+DerivedData/
+.build/
+*.swiftpm/xcuserdata/
+
+# Swift Package Manager
+.swiftpm/
+Packages/
+Package.resolved
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# CocoaPods / Carthage (if ever used)
+Pods/
+Carthage/Build/
+
+# Logs & local env
+*.log
+.env
+.env.local
+
+# Build output
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
