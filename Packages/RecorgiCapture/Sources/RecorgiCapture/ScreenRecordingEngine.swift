@@ -212,7 +212,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         // source is guaranteed to land at or after a time we captured
         // ourselves, right here.
         guard writer.startWriting() else {
-            DebugLog.write("writer.startWriting() FAILED: \(writer.error?.localizedDescription ?? "nil")")
+            DebugLog.write("writer.startWriting() FAILED: \(Self.errorDetails(writer.error))")
             throw RecordingError.writerSetupFailed(writer.error?.localizedDescription ?? "unknown error")
         }
         writer.startSession(atSourceTime: CMClockGetTime(CMClockGetHostTimeClock()))
@@ -282,7 +282,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             switch writer.status {
             case .writing:
                 await writer.finishWriting()
-                DebugLog.write("finishWriting() returned, status=\(writer.status.rawValue) error=\(writer.error?.localizedDescription ?? "none")")
+                DebugLog.write("finishWriting() returned, status=\(writer.status.rawValue) error=\(Self.errorDetails(writer.error))")
                 if writer.status == .failed {
                     lastError = writer.error?.localizedDescription ?? "Recording failed to finalize."
                 }
@@ -295,7 +295,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 // no finishWriting() call, no error, just an abandoned file
                 // with no moov atom. This branch is what actually surfaces
                 // that failure now.
-                DebugLog.write("writer already .failed at stop() time, error=\(writer.error?.localizedDescription ?? "none")")
+                DebugLog.write("writer already .failed at stop() time, error=\(Self.errorDetails(writer.error))")
                 lastError = writer.error?.localizedDescription ?? "Recording failed while writing."
             case .cancelled, .completed, .unknown:
                 DebugLog.write("writer status at stop() time: \(writer.status.rawValue) (no action)")
@@ -385,7 +385,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 let ok = videoInput.append(sampleBuffer)
                 videoFrameCount += 1
                 if !ok {
-                    DebugLog.write("videoInput.append() returned FALSE at frame \(videoFrameCount), writer.status=\(assetWriter?.status.rawValue ?? -1) error=\(assetWriter?.error?.localizedDescription ?? "none")")
+                    DebugLog.write("videoInput.append() returned FALSE at frame \(videoFrameCount), writer.status=\(assetWriter?.status.rawValue ?? -1) error=\(Self.errorDetails(assetWriter?.error))")
                 } else if videoFrameCount == 1 || videoFrameCount % 60 == 0 {
                     DebugLog.write("video frame #\(videoFrameCount) appended ok")
                 }
@@ -412,7 +412,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         guard case .recording = state, !isHandlingWriterFailure else { return }
         isHandlingWriterFailure = true
         let message = assetWriter?.error?.localizedDescription ?? "Recording failed while writing."
-        DebugLog.write("handleWriterFailure() triggered from append(): \(message)")
+        DebugLog.write("handleWriterFailure() triggered from append(): \(Self.errorDetails(assetWriter?.error))")
         lastError = message
         Task {
             await stop()
@@ -435,6 +435,15 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             }
         }
         return 2
+    }
+
+    /// `localizedDescription` alone is often a useless generic string
+    /// ("The operation could not be completed") — domain/code/userInfo is
+    /// what actually identifies the underlying failure.
+    private static func errorDetails(_ error: Error?) -> String {
+        guard let error else { return "nil" }
+        let nsError = error as NSError
+        return "domain=\(nsError.domain) code=\(nsError.code) desc=\(nsError.localizedDescription) userInfo=\(nsError.userInfo)"
     }
 
     private static func timestampedFilename() -> String {
