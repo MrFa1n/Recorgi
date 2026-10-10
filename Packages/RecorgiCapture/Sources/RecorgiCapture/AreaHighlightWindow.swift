@@ -1,289 +1,21 @@
 import AppKit
 
-/// A border drawn around a chosen area — a persistent visual reminder of
-/// exactly what's being captured, both while configuring it and while
-/// actually recording. While configuring (isInteractive == true), it's
-/// directly draggable (move the body) and resizable (drag one of 8
-/// handles), the same refinement interaction as the system screenshot
-/// tool's area selection. During actual recording it stays click-through,
-/// same as before — ScreenRecordingEngine's own instance never turns
-/// interactivity on.
-///
-/// The window's frame is always sized to exactly the selection plus a
-/// small margin for the handles — *not* the whole screen. A full-screen
-/// window with ignoresMouseEvents turned off would swallow every click
-/// anywhere on the display, not just over the selection: hitTest only
-/// decides which view *within* a window handles an event, it doesn't make
-/// clicks fall through to whatever's behind the window. Keeping the
-/// window itself small is what actually makes everything outside the
-/// selection clickable again.
-final class AreaHighlightWindow: NSWindow {
-    private let highlightView: AreaHighlightView
-    private let margin: CGFloat = 12
+private enum Handle: CaseIterable {
+    case topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left
 
-    var onRectChange: ((CGRect) -> Void)?
-
-    init() {
-        let view = AreaHighlightView()
-        self.highlightView = view
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1), styleMask: .borderless, backing: .buffered, defer: false)
-        isOpaque = false
-        backgroundColor = .clear
-        level = .floating
-        ignoresMouseEvents = true
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        isReleasedWhenClosed = false
-        hasShadow = false
-        contentView = view
-        view.margin = margin
-
-        // Fired by the view during a drag, in global screen coordinates.
-        // Owning the actual window-repositioning here (rather than in the
-        // view) keeps the view from needing to know it's inside a window
-        // that's constantly resizing itself to track the selection.
-        view.onDrag = { [weak self] newRect in
-            guard let self else { return }
-            highlightView.selectionRect = newRect
-            setFrame(newRect.insetBy(dx: -margin, dy: -margin), display: true)
-            onRectChange?(newRect)
+    var cursor: NSCursor {
+        switch self {
+        case .top, .bottom: return .resizeUpDown
+        case .left, .right: return .resizeLeftRight
+        // AppKit has no public diagonal resize cursor; crosshair at least
+        // reads as "this corner does something" rather than showing the
+        // wrong directional cursor.
+        case .topLeft, .topRight, .bottomLeft, .bottomRight: return .crosshair
         }
     }
 
-    /// Both rects are in AppKit global screen coordinates (bottom-left
-    /// origin, offset for the display's own position on a multi-monitor
-    /// setup) — the caller (AreaHighlighter) converts to/from the
-    /// display-local, top-left-origin convention the rest of the app uses.
-    func update(selectionRect: CGRect, displayBounds: CGRect) {
-        highlightView.displayBounds = displayBounds
-        highlightView.selectionRect = selectionRect
-        setFrame(selectionRect.insetBy(dx: -margin, dy: -margin), display: true)
-    }
-
-    var isInteractive: Bool {
-        get { !ignoresMouseEvents }
-        set {
-            ignoresMouseEvents = !newValue
-            highlightView.isInteractive = newValue
-        }
-    }
-}
-
-private final class AreaHighlightView: NSView {
-    var margin: CGFloat = 12
-    var selectionRect: CGRect = .zero {
-        didSet {
-            needsDisplay = true
-            // The border strips (see updateTrackingAreas) are sized off
-            // selectionRect's width/height — a pure move (same size, new
-            // window position) doesn't need them rebuilt, a resize does.
-            if oldValue.size != selectionRect.size {
-                updateTrackingAreas()
-            }
-        }
-    }
-    var displayBounds: CGRect = .zero
-    var isInteractive = false {
-        didSet { updateTrackingAreas() }
-    }
-    /// Reports the proposed new selection rect (global screen coordinates)
-    /// continuously while dragging.
-    var onDrag: ((CGRect) -> Void)?
-
-    private enum Handle: CaseIterable, Equatable {
-        case topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left
-    }
-
-    private enum DragMode {
-        case move(startMouseGlobal: NSPoint, startRect: CGRect)
-        case resize(handle: Handle, startMouseGlobal: NSPoint, startRect: CGRect)
-    }
-
-    private var dragMode: DragMode?
-    private let handleSize: CGFloat = 10
-    private let minimumSize: CGFloat = 40
-    // How close to the border line itself counts as "on" it, for both
-    // hit-testing and the move cursor. Outside this margin (interior or
-    // exterior), this window claims neither clicks nor the cursor — it
-    // behaves exactly as if no area were selected at all, so apps
-    // underneath stay fully usable (their own cursor, their own clicks)
-    // right up to the border.
-    private let borderHitMargin: CGFloat = 6
-
-    init() {
-        super.init(frame: .zero)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    // The window is always sized to exactly selectionRect + margin (see
-    // AreaHighlightWindow), so within this view the border sits at a fixed
-    // (margin, margin) offset regardless of where the window actually is
-    // on screen.
-    private var localHighlightRect: NSRect {
-        NSRect(x: margin, y: margin, width: selectionRect.width, height: selectionRect.height)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard selectionRect.width > 0, selectionRect.height > 0 else { return }
-        let rect = localHighlightRect
-        NSColor.controlAccentColor.setStroke()
-        let path = NSBezierPath(rect: rect.insetBy(dx: 1.5, dy: 1.5))
-        path.lineWidth = 3
-        path.stroke()
-
-        guard isInteractive else { return }
-        for handle in Handle.allCases {
-            let oval = NSBezierPath(ovalIn: handleRect(for: handle, in: rect))
-            NSColor.controlAccentColor.setFill()
-            oval.fill()
-            NSColor.white.setStroke()
-            oval.lineWidth = 1.5
-            oval.stroke()
-        }
-    }
-
-    // Only the border line (within borderHitMargin) or a handle counts —
-    // not the whole interior, and not the margin space outside the rect.
-    // That's what makes everything except the frame itself pass straight
-    // through to whatever's underneath, cursor included.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard isInteractive else { return nil }
-        return (handle(at: point) != nil || isNearBorder(point)) ? self : nil
-    }
-
-    private func isNearBorder(_ point: NSPoint) -> Bool {
-        let rect = localHighlightRect
-        guard rect.insetBy(dx: -borderHitMargin, dy: -borderHitMargin).contains(point) else { return false }
-        // A rect inset past zero size (tiny selections) simply never
-        // contains anything, so the whole thing correctly counts as
-        // "border" with no safe interior — no extra guard needed.
-        return !rect.insetBy(dx: borderHitMargin, dy: borderHitMargin).contains(point)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        guard isInteractive else { return }
-        // Four thin strips along the border, not the whole bounds — an
-        // NSTrackingArea can't express a "frame" shape directly, and
-        // tracking areas fire mouseMoved/cursorUpdate purely by geometric
-        // containment, independent of hitTest, so covering the interior
-        // here would still let this window hijack the cursor there even
-        // though clicks already pass through.
-        let rect = localHighlightRect
-        let m = borderHitMargin
-        let strips = [
-            NSRect(x: rect.minX - m, y: rect.maxY - m, width: rect.width + m * 2, height: m * 2),   // top
-            NSRect(x: rect.minX - m, y: rect.minY - m, width: rect.width + m * 2, height: m * 2),   // bottom
-            NSRect(x: rect.minX - m, y: rect.minY - m, width: m * 2, height: rect.height + m * 2),  // left
-            NSRect(x: rect.maxX - m, y: rect.minY - m, width: m * 2, height: rect.height + m * 2)   // right
-        ]
-        for strip in strips {
-            addTrackingArea(NSTrackingArea(
-                rect: strip,
-                options: [.activeAlways, .cursorUpdate, .mouseMoved, .mouseEnteredAndExited],
-                owner: self,
-                userInfo: nil
-            ))
-        }
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        cursor(at: convert(event.locationInWindow, from: nil))?.set()
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        cursor(at: convert(event.locationInWindow, from: nil))?.set()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        NSCursor.arrow.set()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard isInteractive else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        let globalMouse = NSEvent.mouseLocation
-        if let handle = handle(at: point) {
-            dragMode = .resize(handle: handle, startMouseGlobal: globalMouse, startRect: selectionRect)
-        } else if isNearBorder(point) {
-            dragMode = .move(startMouseGlobal: globalMouse, startRect: selectionRect)
-        } else {
-            dragMode = nil
-        }
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let dragMode else { return }
-        // Tracked in global screen coordinates, not view-local ones — the
-        // window (and so this view's own coordinate space) moves and
-        // resizes *during* the drag, which would make a view-local
-        // reference point a moving target.
-        let globalMouse = NSEvent.mouseLocation
-        let bounds = displayBounds.width > 0 ? displayBounds : selectionRect.insetBy(dx: -100_000, dy: -100_000)
-
-        let newRect: CGRect
-        switch dragMode {
-        case .move(let startMouseGlobal, let startRect):
-            var origin = CGPoint(
-                x: startRect.minX + (globalMouse.x - startMouseGlobal.x),
-                y: startRect.minY + (globalMouse.y - startMouseGlobal.y)
-            )
-            origin.x = min(max(origin.x, bounds.minX), bounds.maxX - startRect.width)
-            origin.y = min(max(origin.y, bounds.minY), bounds.maxY - startRect.height)
-            newRect = CGRect(origin: origin, size: startRect.size)
-
-        case .resize(let handle, let startMouseGlobal, let startRect):
-            newRect = Self.resized(
-                startRect,
-                handle: handle,
-                dx: globalMouse.x - startMouseGlobal.x,
-                dy: globalMouse.y - startMouseGlobal.y,
-                bounds: bounds,
-                minimumSize: minimumSize
-            )
-        }
-
-        onDrag?(newRect)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        dragMode = nil
-    }
-
-    private func handleRect(for handle: Handle, in rect: CGRect) -> NSRect {
-        let center = position(of: handle, in: rect)
-        return NSRect(x: center.x - handleSize / 2, y: center.y - handleSize / 2, width: handleSize, height: handleSize)
-    }
-
-    private func handle(at point: NSPoint) -> Handle? {
-        let rect = localHighlightRect
-        return Handle.allCases.first { handleRect(for: $0, in: rect).insetBy(dx: -handleSize / 2, dy: -handleSize / 2).contains(point) }
-    }
-
-    // nil means "don't touch the cursor" — in practice this only gets
-    // asked about points inside one of the border tracking strips, so it's
-    // a safety net rather than the normal path, but returning nil (instead
-    // of defaulting to .arrow) keeps this view from ever fighting whatever
-    // cursor the app underneath wants outside the frame.
-    private func cursor(at point: NSPoint) -> NSCursor? {
-        if let handle = handle(at: point) {
-            switch handle {
-            case .top, .bottom: return .resizeUpDown
-            case .left, .right: return .resizeLeftRight
-            // AppKit has no public diagonal resize cursor; crosshair at
-            // least reads as "this corner does something" rather than
-            // showing the wrong directional cursor.
-            case .topLeft, .topRight, .bottomLeft, .bottomRight: return .crosshair
-            }
-        }
-        return isNearBorder(point) ? .openHand : nil
-    }
-
-    private func position(of handle: Handle, in rect: CGRect) -> NSPoint {
-        switch handle {
+    func position(in rect: CGRect) -> NSPoint {
+        switch self {
         case .topLeft: return NSPoint(x: rect.minX, y: rect.maxY)
         case .top: return NSPoint(x: rect.midX, y: rect.maxY)
         case .topRight: return NSPoint(x: rect.maxX, y: rect.maxY)
@@ -292,6 +24,290 @@ private final class AreaHighlightView: NSView {
         case .bottom: return NSPoint(x: rect.midX, y: rect.minY)
         case .bottomLeft: return NSPoint(x: rect.minX, y: rect.minY)
         case .left: return NSPoint(x: rect.minX, y: rect.midY)
+        }
+    }
+}
+
+private enum Edge: CaseIterable {
+    case top, bottom, left, right
+
+    func frame(in rect: CGRect, handleSize: CGFloat, thickness: CGFloat) -> NSRect {
+        switch self {
+        case .top:
+            return NSRect(x: rect.minX + handleSize / 2, y: rect.maxY - thickness / 2, width: max(0, rect.width - handleSize), height: thickness)
+        case .bottom:
+            return NSRect(x: rect.minX + handleSize / 2, y: rect.minY - thickness / 2, width: max(0, rect.width - handleSize), height: thickness)
+        case .left:
+            return NSRect(x: rect.minX - thickness / 2, y: rect.minY + handleSize / 2, width: thickness, height: max(0, rect.height - handleSize))
+        case .right:
+            return NSRect(x: rect.maxX - thickness / 2, y: rect.minY + handleSize / 2, width: thickness, height: max(0, rect.height - handleSize))
+        }
+    }
+}
+
+/// A tiny, precisely-sized window representing exactly one resize handle or
+/// one draggable edge segment — never any bigger than that single hotspot.
+///
+/// This is the only way to get genuine click-through for everything else.
+/// hitTest returning nil for a point still *inside* a window's frame does
+/// NOT make the click fall through to the window behind — hitTest only
+/// decides which view *within an already-claimed window* handles the
+/// event. A single window covering the whole selection, even with
+/// ignoresMouseEvents off only "logically" outside hitTest's claimed
+/// region, still eats every click inside its frame — including, if the
+/// selection happens to sit over this app's own window, its own buttons.
+/// Many small windows, each exactly as big as the hotspot it represents,
+/// is what actually leaves everything in between untouched.
+private final class HotspotWindow: NSWindow {
+    var onMouseDown: ((NSPoint) -> Void)?
+    var onMouseDragged: ((NSPoint) -> Void)?
+    var onMouseUp: (() -> Void)?
+
+    init(cursor: NSCursor, drawsHandle: Bool) {
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1), styleMask: .borderless, backing: .buffered, defer: false)
+        isOpaque = false
+        backgroundColor = .clear
+        level = .floating
+        ignoresMouseEvents = false
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        isReleasedWhenClosed = false
+        hasShadow = false
+
+        let view = HotspotView(cursor: cursor, drawsHandle: drawsHandle)
+        view.onMouseDown = { [weak self] in self?.onMouseDown?(NSEvent.mouseLocation) }
+        view.onMouseDragged = { [weak self] in self?.onMouseDragged?(NSEvent.mouseLocation) }
+        view.onMouseUp = { [weak self] in self?.onMouseUp?() }
+        contentView = view
+    }
+
+    func reposition(to frame: NSRect) {
+        setFrame(frame, display: true)
+    }
+}
+
+private final class HotspotView: NSView {
+    private let cursor: NSCursor
+    private let drawsHandle: Bool
+    var onMouseDown: (() -> Void)?
+    var onMouseDragged: (() -> Void)?
+    var onMouseUp: (() -> Void)?
+
+    init(cursor: NSCursor, drawsHandle: Bool) {
+        self.cursor = cursor
+        self.drawsHandle = drawsHandle
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard drawsHandle else { return }
+        let oval = NSBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2))
+        NSColor.controlAccentColor.setFill()
+        oval.fill()
+        NSColor.white.setStroke()
+        oval.lineWidth = 1.5
+        oval.stroke()
+    }
+
+    // The whole window already *is* precisely this one hotspot, so the
+    // view's entire bounds (not some sub-region) is the right zone — no
+    // hitTest override needed here, unlike the old single-big-window design.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.activeAlways, .cursorUpdate, .mouseMoved], owner: self, userInfo: nil))
+    }
+
+    override func cursorUpdate(with event: NSEvent) { cursor.set() }
+    override func mouseMoved(with event: NSEvent) { cursor.set() }
+    override func mouseDown(with event: NSEvent) { onMouseDown?() }
+    override func mouseDragged(with event: NSEvent) { onMouseDragged?() }
+    override func mouseUp(with event: NSEvent) { onMouseUp?() }
+}
+
+/// Purely visual — the accent-colored outline, always click-through. Used
+/// both for the interactive (configuration-time) border and the plain one
+/// shown during an actual recording.
+private final class AreaBorderWindow: NSWindow {
+    private let borderView = AreaBorderView()
+    private let padding: CGFloat = 4
+
+    init() {
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1), styleMask: .borderless, backing: .buffered, defer: false)
+        isOpaque = false
+        backgroundColor = .clear
+        level = .floating
+        ignoresMouseEvents = true
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        isReleasedWhenClosed = false
+        hasShadow = false
+        contentView = borderView
+    }
+
+    func update(rect: CGRect) {
+        borderView.strokeRect = NSRect(x: padding, y: padding, width: rect.width, height: rect.height)
+        setFrame(rect.insetBy(dx: -padding, dy: -padding), display: true)
+    }
+}
+
+private final class AreaBorderView: NSView {
+    var strokeRect: NSRect = .zero {
+        didSet { needsDisplay = true }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard strokeRect.width > 0, strokeRect.height > 0 else { return }
+        NSColor.controlAccentColor.setStroke()
+        let path = NSBezierPath(rect: strokeRect.insetBy(dx: 1.5, dy: 1.5))
+        path.lineWidth = 3
+        path.stroke()
+    }
+}
+
+/// Owns the visual border plus, while interactive, the 8 handle + 4 edge
+/// hotspot windows — shows/hides/repositions all of them together. Safe to
+/// call show/hide repeatedly.
+@MainActor
+public final class AreaHighlighter {
+    private let borderWindow = AreaBorderWindow()
+    private var handleWindows: [Handle: HotspotWindow] = [:]
+    private var edgeWindows: [Edge: HotspotWindow] = [:]
+
+    private var interactiveFlag = false
+    private var screen: NSScreen?
+    private var selectionGlobal: CGRect = .zero
+    private var displayBoundsGlobal: CGRect = .zero
+
+    private let handleSize: CGFloat = 14
+    private let edgeThickness: CGFloat = 12
+    private let minimumSelectionSize: CGFloat = 40
+
+    private struct DragState {
+        let mouseStart: NSPoint
+        let rectStart: CGRect
+        let kind: Kind
+        enum Kind {
+            case move
+            case resize(Handle)
+        }
+    }
+    private var drag: DragState?
+
+    /// Called with the new rect (top-left origin, relative to the display,
+    /// matching the convention `show(on:rect:)` takes) whenever the user
+    /// drags an edge or a resize handle — only fires when
+    /// `setInteractive(true)` was called.
+    public var onRectChange: ((CGRect) -> Void)?
+
+    public init() {}
+
+    /// The border window's own CGWindowID, for callers that need to
+    /// exclude it from a capture (so the border itself never ends up baked
+    /// into the recording).
+    public var highlightedWindowID: UInt32? {
+        guard borderWindow.windowNumber >= 0 else { return nil }
+        return UInt32(borderWindow.windowNumber)
+    }
+
+    /// Lets the user directly drag/resize the border before recording
+    /// starts. Never call this on the instance ScreenRecordingEngine shows
+    /// during an actual recording — that one must stay click-through.
+    public func setInteractive(_ interactive: Bool) {
+        interactiveFlag = interactive
+        updateHotspotVisibility()
+    }
+
+    public func show(on displayID: UInt32, rect: CGRect) {
+        guard let matchedScreen = NSScreen.screens.first(where: { Self.displayID(for: $0) == displayID }) else {
+            hide()
+            return
+        }
+        screen = matchedScreen
+        displayBoundsGlobal = matchedScreen.frame
+        selectionGlobal = Self.globalRect(fromLocal: rect, screen: matchedScreen)
+        borderWindow.update(rect: selectionGlobal)
+        borderWindow.orderFrontRegardless()
+        updateHotspotVisibility()
+    }
+
+    public func hide() {
+        borderWindow.orderOut(nil)
+        for window in handleWindows.values { window.orderOut(nil) }
+        for window in edgeWindows.values { window.orderOut(nil) }
+        screen = nil
+        drag = nil
+    }
+
+    private func updateHotspotVisibility() {
+        guard interactiveFlag, screen != nil, selectionGlobal.width > 0 else {
+            for window in handleWindows.values { window.orderOut(nil) }
+            for window in edgeWindows.values { window.orderOut(nil) }
+            return
+        }
+        ensureHotspotsExist()
+        layoutHotspots()
+        for window in handleWindows.values { window.orderFrontRegardless() }
+        for window in edgeWindows.values { window.orderFrontRegardless() }
+    }
+
+    private func ensureHotspotsExist() {
+        if handleWindows.isEmpty {
+            for handle in Handle.allCases {
+                let window = HotspotWindow(cursor: handle.cursor, drawsHandle: true)
+                window.onMouseDown = { [weak self] mouse in self?.beginDrag(.resize(handle), at: mouse) }
+                window.onMouseDragged = { [weak self] mouse in self?.continueDrag(at: mouse) }
+                window.onMouseUp = { [weak self] in self?.drag = nil }
+                handleWindows[handle] = window
+            }
+        }
+        if edgeWindows.isEmpty {
+            for edge in Edge.allCases {
+                let window = HotspotWindow(cursor: .openHand, drawsHandle: false)
+                window.onMouseDown = { [weak self] mouse in self?.beginDrag(.move, at: mouse) }
+                window.onMouseDragged = { [weak self] mouse in self?.continueDrag(at: mouse) }
+                window.onMouseUp = { [weak self] in self?.drag = nil }
+                edgeWindows[edge] = window
+            }
+        }
+    }
+
+    private func layoutHotspots() {
+        for (handle, window) in handleWindows {
+            let center = handle.position(in: selectionGlobal)
+            window.reposition(to: NSRect(x: center.x - handleSize / 2, y: center.y - handleSize / 2, width: handleSize, height: handleSize))
+        }
+        for (edge, window) in edgeWindows {
+            window.reposition(to: edge.frame(in: selectionGlobal, handleSize: handleSize, thickness: edgeThickness))
+        }
+    }
+
+    private func beginDrag(_ kind: DragState.Kind, at mouse: NSPoint) {
+        drag = DragState(mouseStart: mouse, rectStart: selectionGlobal, kind: kind)
+    }
+
+    private func continueDrag(at mouse: NSPoint) {
+        guard let drag else { return }
+        let dx = mouse.x - drag.mouseStart.x
+        let dy = mouse.y - drag.mouseStart.y
+        let bounds = displayBoundsGlobal.width > 0 ? displayBoundsGlobal : drag.rectStart.insetBy(dx: -100_000, dy: -100_000)
+
+        switch drag.kind {
+        case .move:
+            var origin = CGPoint(x: drag.rectStart.minX + dx, y: drag.rectStart.minY + dy)
+            origin.x = min(max(origin.x, bounds.minX), bounds.maxX - drag.rectStart.width)
+            origin.y = min(max(origin.y, bounds.minY), bounds.maxY - drag.rectStart.height)
+            selectionGlobal = CGRect(origin: origin, size: drag.rectStart.size)
+        case .resize(let handle):
+            selectionGlobal = Self.resized(drag.rectStart, handle: handle, dx: dx, dy: dy, bounds: bounds, minimumSize: minimumSelectionSize)
+        }
+
+        borderWindow.update(rect: selectionGlobal)
+        layoutHotspots()
+        if let screen {
+            onRectChange?(Self.localRect(fromGlobal: selectionGlobal, screen: screen))
         }
     }
 
@@ -325,58 +341,6 @@ private final class AreaHighlightView: NSView {
         }
 
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-}
-
-/// Owns one highlight window's lifecycle. Safe to call show/hide repeatedly.
-@MainActor
-public final class AreaHighlighter {
-    private var window: AreaHighlightWindow?
-    private var interactive = false
-
-    /// Called with the new rect (top-left origin, relative to the display,
-    /// matching the convention `show(on:rect:)` takes) whenever the user
-    /// drags the border's body or a resize handle — only fires when
-    /// `setInteractive(true)` was called.
-    public var onRectChange: ((CGRect) -> Void)?
-
-    public init() {}
-
-    /// The highlight window's own CGWindowID, for callers that need to
-    /// exclude it from a capture (so the border itself never ends up baked
-    /// into the recording).
-    public var highlightedWindowID: UInt32? {
-        guard let window, window.windowNumber >= 0 else { return nil }
-        return UInt32(window.windowNumber)
-    }
-
-    /// Lets the user directly drag/resize the border before recording
-    /// starts. Never call this on the instance ScreenRecordingEngine shows
-    /// during an actual recording — that one must stay click-through.
-    public func setInteractive(_ interactive: Bool) {
-        self.interactive = interactive
-        window?.isInteractive = interactive
-    }
-
-    public func show(on displayID: UInt32, rect: CGRect) {
-        guard let screen = NSScreen.screens.first(where: { Self.displayID(for: $0) == displayID }) else {
-            hide()
-            return
-        }
-        let win = window ?? AreaHighlightWindow()
-        window = win
-        win.isInteractive = interactive
-        win.onRectChange = { [weak self] globalRect in
-            guard let self else { return }
-            self.onRectChange?(Self.localRect(fromGlobal: globalRect, screen: screen))
-        }
-        win.update(selectionRect: Self.globalRect(fromLocal: rect, screen: screen), displayBounds: screen.frame)
-        win.orderFrontRegardless()
-    }
-
-    public func hide() {
-        window?.orderOut(nil)
-        window = nil
     }
 
     /// `rect` is top-left-origin, relative to the display's own frame
