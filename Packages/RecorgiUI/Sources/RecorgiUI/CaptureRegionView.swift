@@ -268,12 +268,20 @@ struct CaptureRegionView: View {
     // has to happen at the view level instead.
     @ViewBuilder
     private func sourceCard(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        // .frame(maxWidth: .infinity) has to go on the Button itself, after
+        // .buttonStyle() — applying it only inside the label (as the inner
+        // VStack already does) doesn't reliably stretch the glass button
+        // styles' own background to the grid column's full width, which is
+        // why cards were visibly different widths despite equal-width
+        // adaptive grid columns.
         if isSelected {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: true, action: action)
                 .buttonStyle(.glassProminent)
+                .frame(maxWidth: .infinity)
         } else {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: false, action: action)
                 .buttonStyle(.glass)
+                .frame(maxWidth: .infinity)
         }
     }
 
