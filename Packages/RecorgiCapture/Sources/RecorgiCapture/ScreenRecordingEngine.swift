@@ -264,13 +264,27 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         systemAudioInput?.markAsFinished()
         microphoneInput?.markAsFinished()
 
-        if let writer = assetWriter, writer.status == .writing {
-            await writer.finishWriting()
-            if writer.status == .failed {
-                // Surfaced, not swallowed — this is exactly how a recording
-                // silently came out with no moov atom (unplayable) before:
-                // finishWriting() failed and nothing ever reported it.
-                lastError = writer.error?.localizedDescription ?? "Recording failed to finalize."
+        if let writer = assetWriter {
+            switch writer.status {
+            case .writing:
+                await writer.finishWriting()
+                if writer.status == .failed {
+                    lastError = writer.error?.localizedDescription ?? "Recording failed to finalize."
+                }
+            case .failed:
+                // The writer can fail *during* capture (an append() call
+                // hitting a real encoder/format error), not just when
+                // finishWriting() is called — the old `writer.status ==
+                // .writing` guard only checked the latter, so a writer that
+                // had already died mid-recording was silently skipped here:
+                // no finishWriting() call, no error, just an abandoned file
+                // with no moov atom. This branch is what actually surfaces
+                // that failure now.
+                lastError = writer.error?.localizedDescription ?? "Recording failed while writing."
+            case .cancelled, .completed, .unknown:
+                break
+            @unknown default:
+                break
             }
         }
         assetWriter = nil
@@ -333,6 +347,15 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     private func append(_ sampleBuffer: CMSampleBuffer, to track: TrackKind) {
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
 
+        // The writer can die mid-recording (an append() hitting a real
+        // encoder/format error) well before anyone presses Stop. Catch that
+        // here instead of silently continuing to "record" into a dead
+        // writer until the user eventually stops it themselves.
+        if assetWriter?.status == .failed {
+            handleWriterFailure()
+            return
+        }
+
         switch track {
         case .video:
             if videoInput?.isReadyForMoreMediaData == true {
@@ -346,6 +369,18 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             if microphoneInput?.isReadyForMoreMediaData == true {
                 microphoneInput?.append(sampleBuffer)
             }
+        }
+    }
+
+    private var isHandlingWriterFailure = false
+
+    private func handleWriterFailure() {
+        guard case .recording = state, !isHandlingWriterFailure else { return }
+        isHandlingWriterFailure = true
+        lastError = assetWriter?.error?.localizedDescription ?? "Recording failed while writing."
+        Task {
+            await stop()
+            isHandlingWriterFailure = false
         }
     }
 
