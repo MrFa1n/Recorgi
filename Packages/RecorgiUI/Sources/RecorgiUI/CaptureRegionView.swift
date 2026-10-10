@@ -3,13 +3,6 @@ import AppKit
 import RecorgiCore
 import RecorgiCapture
 
-private struct ContentWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 private enum CaptureModeTab: Hashable {
     case screen, window, area
 
@@ -51,34 +44,16 @@ struct CaptureRegionView: View {
     // the glass button styles apparently hug their content tightly enough
     // that even an explicit .frame(maxWidth: .infinity) on the Button
     // didn't make them fill the column — cards ended up visibly different
-    // widths. Measuring the available width ourselves and handing every
-    // card an *exact* .frame(width:) (done in sourceCardButton) is a much
-    // harder constraint than "up to infinity" and reliably wins.
-    @State private var gridWidth: CGFloat = 0
+    // widths. Handing every card an *exact* .frame(width:) is a much
+    // harder constraint than "up to infinity" and reliably wins — computed
+    // once per body evaluation from a GeometryReader wrapping the whole
+    // page (see body) and threaded down as a plain parameter, not measured
+    // via a background GeometryReader + PreferenceKey: that measured the
+    // very container the grid itself sizes, which is circular — the
+    // measurement and the thing being measured kept chasing each other and
+    // produced a visibly broken, oscillating layout.
     private let cardSpacing: CGFloat = 16
     private let minCardWidth: CGFloat = 200
-
-    // gridWidth is measured on the outer VStack, which has 24pt padding on
-    // each side — the grid itself only ever gets the width left over after
-    // that.
-    private var availableGridWidth: CGFloat {
-        max(0, gridWidth - 48)
-    }
-
-    private var columnCount: Int {
-        guard availableGridWidth > 0 else { return 1 }
-        return max(1, Int((availableGridWidth + cardSpacing) / (minCardWidth + cardSpacing)))
-    }
-
-    private var cardWidth: CGFloat {
-        let columns = CGFloat(columnCount)
-        guard availableGridWidth > 0 else { return minCardWidth }
-        return (availableGridWidth - (columns - 1) * cardSpacing) / columns
-    }
-
-    private var gridColumns: [GridItem] {
-        Array(repeating: GridItem(.fixed(cardWidth), spacing: cardSpacing), count: columnCount)
-    }
 
     init(settings: RecordingSettings) {
         self._settings = ObservedObject(wrappedValue: settings)
@@ -93,49 +68,54 @@ struct CaptureRegionView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Invisible but present in the hierarchy, so .keyboardShortcut
-                // claims Escape for the whole page regardless of what, if
-                // anything, currently has focus — the reliable way to handle
-                // a page-level shortcut in SwiftUI on macOS, rather than
-                // fighting over which view is first responder.
-                Button("", action: resetAreaSelection)
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .opacity(0)
-                    .frame(width: 0, height: 0)
-                    .accessibilityHidden(true)
+        // Wraps the whole page: geo.size here comes from this page's own
+        // allocated space in the window, which doesn't depend on anything
+        // inside the ScrollView — unlike measuring a view that's itself
+        // sized by the grid the measurement then feeds, this can't become
+        // circular.
+        GeometryReader { geo in
+            let availableWidth = max(0, geo.size.width - 48) // the VStack's own 24pt padding, each side
+            let columnCount = availableWidth > 0 ? max(1, Int((availableWidth + cardSpacing) / (minCardWidth + cardSpacing))) : 1
+            let cardWidth: CGFloat = availableWidth > 0
+                ? (availableWidth - CGFloat(columnCount - 1) * cardSpacing) / CGFloat(columnCount)
+                : minCardWidth
+            let gridColumns = Array(repeating: GridItem(.fixed(cardWidth), spacing: cardSpacing), count: columnCount)
 
-                Text("Область записи")
-                    .font(.largeTitle.bold())
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Invisible but present in the hierarchy, so
+                    // .keyboardShortcut claims Escape for the whole page
+                    // regardless of what, if anything, currently has focus —
+                    // the reliable way to handle a page-level shortcut in
+                    // SwiftUI on macOS, rather than fighting over which view
+                    // is first responder.
+                    Button("", action: resetAreaSelection)
+                        .keyboardShortcut(.escape, modifiers: [])
+                        .opacity(0)
+                        .frame(width: 0, height: 0)
+                        .accessibilityHidden(true)
 
-                modePicker
+                    Text("Область записи")
+                        .font(.largeTitle.bold())
 
-                switch mode {
-                case .screen: screenContent
-                case .window: windowContent
-                case .area: areaContent
+                    modePicker
+
+                    switch mode {
+                    case .screen: screenContent(gridColumns: gridColumns, cardWidth: cardWidth)
+                    case .window: windowContent(gridColumns: gridColumns, cardWidth: cardWidth)
+                    case .area: areaContent
+                    }
+
+                    if let loadError {
+                        Text(loadError)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-
-                if let loadError {
-                    Text(loadError)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                // Measures available width without imposing any layout
-                // constraint of its own — a GeometryReader placed directly
-                // in the layout (instead of its background) would try to
-                // greedily fill all remaining space inside the ScrollView.
-                GeometryReader { geo in
-                    Color.clear.preference(key: ContentWidthKey.self, value: geo.size.width)
-                }
-            )
         }
-        .onPreferenceChange(ContentWidthKey.self) { gridWidth = $0 }
         .task {
             await loadSources()
         }
@@ -176,7 +156,7 @@ struct CaptureRegionView: View {
 
     // MARK: - Screen
 
-    private var screenContent: some View {
+    private func screenContent(gridColumns: [GridItem], cardWidth: CGFloat) -> some View {
         LazyVGrid(columns: gridColumns, alignment: .leading, spacing: cardSpacing) {
             if displays.count > 1 {
                 if let primary = displays.first {
@@ -184,7 +164,8 @@ struct CaptureRegionView: View {
                         source: .display(primary.displayID),
                         title: "Основной дисплей",
                         subtitle: "Следует настройке системы",
-                        isSelected: settings.captureRegion == .primaryDisplay
+                        isSelected: settings.captureRegion == .primaryDisplay,
+                        cardWidth: cardWidth
                     ) {
                         settings.captureRegion = .primaryDisplay
                     }
@@ -195,7 +176,8 @@ struct CaptureRegionView: View {
                         source: .display(display.displayID),
                         title: display.name,
                         subtitle: "\(display.width)×\(display.height)",
-                        isSelected: settings.captureRegion == .display(display)
+                        isSelected: settings.captureRegion == .display(display),
+                        cardWidth: cardWidth
                     ) {
                         settings.captureRegion = .display(display)
                     }
@@ -205,7 +187,8 @@ struct CaptureRegionView: View {
                     source: .display(only.displayID),
                     title: only.name,
                     subtitle: "\(only.width)×\(only.height)",
-                    isSelected: isSingleDisplaySelected
+                    isSelected: isSingleDisplaySelected,
+                    cardWidth: cardWidth
                 ) {
                     settings.captureRegion = .primaryDisplay
                 }
@@ -219,7 +202,7 @@ struct CaptureRegionView: View {
 
     // MARK: - Window
 
-    private var windowContent: some View {
+    private func windowContent(gridColumns: [GridItem], cardWidth: CGFloat) -> some View {
         Group {
             if windows.isEmpty {
                 Text("Нет открытых окон")
@@ -232,7 +215,8 @@ struct CaptureRegionView: View {
                             source: .window(window.windowID),
                             title: window.title,
                             subtitle: window.appName,
-                            isSelected: settings.captureRegion == .window(window)
+                            isSelected: settings.captureRegion == .window(window),
+                            cardWidth: cardWidth
                         ) {
                             settings.captureRegion = .window(window)
                         }
@@ -315,20 +299,20 @@ struct CaptureRegionView: View {
     // GlassProminentButtonStyle (different concrete types), so the branch
     // has to happen at the view level instead.
     @ViewBuilder
-    private func sourceCard(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func sourceCard(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, cardWidth: CGFloat, action: @escaping () -> Void) -> some View {
         // An exact .frame(width:) on the Button, not .frame(maxWidth:
         // .infinity) — the glass button styles apparently hug their content
         // tightly enough that even an explicit maxWidth of infinity didn't
         // make them fill the grid column; an exact width is a much harder
-        // constraint and reliably wins. cardWidth is computed once from the
-        // page's own measured width so every card, in every row, gets the
-        // identical value.
+        // constraint and reliably wins. cardWidth comes from the caller
+        // (ultimately body's GeometryReader) so every card, in every row,
+        // gets the identical value.
         if isSelected {
-            sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: true, action: action)
+            sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: true, cardWidth: cardWidth, action: action)
                 .buttonStyle(.glassProminent)
                 .frame(width: cardWidth)
         } else {
-            sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: false, action: action)
+            sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: false, cardWidth: cardWidth, action: action)
                 .buttonStyle(.glass)
                 .frame(width: cardWidth)
         }
@@ -341,7 +325,7 @@ struct CaptureRegionView: View {
     // for.
     private let sourceCardHeight: CGFloat = 196
 
-    private func sourceCardButton(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func sourceCardButton(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, cardWidth: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 10) {
                 ZStack(alignment: .topTrailing) {
