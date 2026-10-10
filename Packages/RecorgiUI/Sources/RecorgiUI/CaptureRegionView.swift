@@ -3,6 +3,13 @@ import AppKit
 import RecorgiCore
 import RecorgiCapture
 
+private struct ContentWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 private enum CaptureModeTab: Hashable {
     case screen, window, area
 
@@ -40,7 +47,38 @@ struct CaptureRegionView: View {
     // calls later stopped doing anything.
     @State private var areaHighlighter = AreaHighlighter()
 
-    private let gridColumns = [GridItem(.adaptive(minimum: 200, maximum: 260), spacing: 16)]
+    // .adaptive columns are supposed to be equal width on their own, but
+    // the glass button styles apparently hug their content tightly enough
+    // that even an explicit .frame(maxWidth: .infinity) on the Button
+    // didn't make them fill the column — cards ended up visibly different
+    // widths. Measuring the available width ourselves and handing every
+    // card an *exact* .frame(width:) (done in sourceCardButton) is a much
+    // harder constraint than "up to infinity" and reliably wins.
+    @State private var gridWidth: CGFloat = 0
+    private let cardSpacing: CGFloat = 16
+    private let minCardWidth: CGFloat = 200
+
+    // gridWidth is measured on the outer VStack, which has 24pt padding on
+    // each side — the grid itself only ever gets the width left over after
+    // that.
+    private var availableGridWidth: CGFloat {
+        max(0, gridWidth - 48)
+    }
+
+    private var columnCount: Int {
+        guard availableGridWidth > 0 else { return 1 }
+        return max(1, Int((availableGridWidth + cardSpacing) / (minCardWidth + cardSpacing)))
+    }
+
+    private var cardWidth: CGFloat {
+        let columns = CGFloat(columnCount)
+        guard availableGridWidth > 0 else { return minCardWidth }
+        return (availableGridWidth - (columns - 1) * cardSpacing) / columns
+    }
+
+    private var gridColumns: [GridItem] {
+        Array(repeating: GridItem(.fixed(cardWidth), spacing: cardSpacing), count: columnCount)
+    }
 
     init(settings: RecordingSettings) {
         self._settings = ObservedObject(wrappedValue: settings)
@@ -87,7 +125,17 @@ struct CaptureRegionView: View {
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                // Measures available width without imposing any layout
+                // constraint of its own — a GeometryReader placed directly
+                // in the layout (instead of its background) would try to
+                // greedily fill all remaining space inside the ScrollView.
+                GeometryReader { geo in
+                    Color.clear.preference(key: ContentWidthKey.self, value: geo.size.width)
+                }
+            )
         }
+        .onPreferenceChange(ContentWidthKey.self) { gridWidth = $0 }
         .task {
             await loadSources()
         }
@@ -129,7 +177,7 @@ struct CaptureRegionView: View {
     // MARK: - Screen
 
     private var screenContent: some View {
-        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 16) {
+        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: cardSpacing) {
             if displays.count > 1 {
                 if let primary = displays.first {
                     sourceCard(
@@ -178,7 +226,7 @@ struct CaptureRegionView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 16) {
+                LazyVGrid(columns: gridColumns, alignment: .leading, spacing: cardSpacing) {
                     ForEach(windows) { window in
                         sourceCard(
                             source: .window(window.windowID),
@@ -268,20 +316,21 @@ struct CaptureRegionView: View {
     // has to happen at the view level instead.
     @ViewBuilder
     private func sourceCard(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        // .frame(maxWidth: .infinity) has to go on the Button itself, after
-        // .buttonStyle() — applying it only inside the label (as the inner
-        // VStack already does) doesn't reliably stretch the glass button
-        // styles' own background to the grid column's full width, which is
-        // why cards were visibly different widths despite equal-width
-        // adaptive grid columns.
+        // An exact .frame(width:) on the Button, not .frame(maxWidth:
+        // .infinity) — the glass button styles apparently hug their content
+        // tightly enough that even an explicit maxWidth of infinity didn't
+        // make them fill the grid column; an exact width is a much harder
+        // constraint and reliably wins. cardWidth is computed once from the
+        // page's own measured width so every card, in every row, gets the
+        // identical value.
         if isSelected {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: true, action: action)
                 .buttonStyle(.glassProminent)
-                .frame(maxWidth: .infinity)
+                .frame(width: cardWidth)
         } else {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: false, action: action)
                 .buttonStyle(.glass)
-                .frame(maxWidth: .infinity)
+                .frame(width: cardWidth)
         }
     }
 
@@ -326,8 +375,7 @@ struct CaptureRegionView: View {
                 .frame(height: 36, alignment: .top)
             }
             .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: sourceCardHeight)
+            .frame(width: cardWidth, height: sourceCardHeight, alignment: .topLeading)
         }
         .buttonBorderShape(.roundedRectangle)
     }
