@@ -1,7 +1,7 @@
 import ScreenCaptureKit
 import RecorgiCore
 
-public struct RunningApplicationProvider {
+public struct RunningApplicationProvider: Sendable {
     public init() {}
 
     /// Apps with on-screen windows right now, usable as a system-audio

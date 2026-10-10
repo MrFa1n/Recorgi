@@ -201,8 +201,12 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         let output = AVCaptureAudioDataOutput()
         let relay = MicrophoneSampleRelay { [weak self] sampleBuffer in
+            // CMSampleBuffer isn't marked Sendable, but it's just a CF
+            // object — safely transferable between threads for this handoff
+            // from the microphone queue to the main actor.
+            let boxed = SendableSampleBuffer(buffer: sampleBuffer)
             Task { @MainActor [weak self] in
-                self?.append(sampleBuffer, to: .microphone)
+                self?.append(boxed.buffer, to: .microphone)
             }
         }
         output.setSampleBufferDelegate(relay, queue: microphoneQueue)
@@ -270,16 +274,20 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 }
 
 extension ScreenRecordingEngine: SCStreamOutput, SCStreamDelegate {
-    // Both requirements are nonisolated protocol methods; SCStream already
-    // delivers them on the main queue (sampleHandlerQueue: .main), so hopping
-    // to the main actor here is just making that explicit to the compiler.
+    // Both requirements are nonisolated protocol methods, but SCStream
+    // already delivers them on the main queue (sampleHandlerQueue: .main),
+    // so we're really always on the main actor here — assumeIsolated makes
+    // that known to the compiler instead of hopping through a Task, which
+    // would require CMSampleBuffer to be Sendable (it isn't annotated as
+    // such, even though it's safe to use this way).
     nonisolated public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        Task { @MainActor in
+        let boxed = SendableSampleBuffer(buffer: sampleBuffer)
+        MainActor.assumeIsolated {
             switch type {
             case .screen:
-                self.append(sampleBuffer, to: .video)
+                self.append(boxed.buffer, to: .video)
             case .audio:
-                self.append(sampleBuffer, to: .systemAudio)
+                self.append(boxed.buffer, to: .systemAudio)
             case .microphone:
                 // Newer SDKs can capture the microphone through
                 // ScreenCaptureKit itself; we still use our own
@@ -292,10 +300,10 @@ extension ScreenRecordingEngine: SCStreamOutput, SCStreamDelegate {
     }
 
     nonisolated public func stream(_ stream: SCStream, didStopWithError error: Error) {
-        Task { @MainActor in
+        MainActor.assumeIsolated {
             self.lastError = error.localizedDescription
-            await self.stop()
         }
+        Task { await self.stop() }
     }
 }
 
@@ -309,4 +317,10 @@ private final class MicrophoneSampleRelay: NSObject, AVCaptureAudioDataOutputSam
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         handler(sampleBuffer)
     }
+}
+
+/// CMSampleBuffer isn't Sendable in the SDK's annotations, but it's an
+/// immutable-enough CF object for a simple cross-queue handoff like ours.
+private struct SendableSampleBuffer: @unchecked Sendable {
+    let buffer: CMSampleBuffer
 }

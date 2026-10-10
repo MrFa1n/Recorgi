@@ -25,29 +25,34 @@ public struct ContentView: View {
                 PermissionsBanner(permissions: permissions)
             }
 
-            RecordButton(engine: engine, settings: settings)
+            GlassEffectContainer(spacing: 16) {
+                VStack(spacing: 20) {
+                    RecordButton(engine: engine, settings: settings)
 
-            HStack(spacing: 16) {
-                SourceToggle(title: "Системный звук", systemImage: "speaker.wave.2.fill", isOn: $settings.isSystemAudioEnabled)
+                    HStack(spacing: 16) {
+                        SourceToggle(title: "Системный звук", systemImage: "speaker.wave.2.fill", isOn: $settings.isSystemAudioEnabled)
 
-                HStack(spacing: 4) {
-                    SourceToggle(title: "Микрофон", systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
+                        HStack(spacing: 4) {
+                            SourceToggle(title: "Микрофон", systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
 
-                    Menu {
-                        Button("По умолчанию") { settings.selectedMicrophoneID = nil }
-                        if !microphones.isEmpty {
-                            Divider()
-                            ForEach(microphones) { device in
-                                Button(device.name) { settings.selectedMicrophoneID = device.id }
+                            Menu {
+                                Button("По умолчанию") { settings.selectedMicrophoneID = nil }
+                                if !microphones.isEmpty {
+                                    Divider()
+                                    ForEach(microphones) { device in
+                                        Button(device.name) { settings.selectedMicrophoneID = device.id }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "chevron.down.circle.fill")
                             }
+                            .menuIndicator(.hidden)
+                            .buttonStyle(.glass)
+                            .fixedSize()
+                            .disabled(!settings.isMicrophoneEnabled)
+                            .help(microphoneLabel)
                         }
-                    } label: {
-                        Image(systemName: "chevron.down.circle.fill")
                     }
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .disabled(!settings.isMicrophoneEnabled)
-                    .help(microphoneLabel)
                 }
             }
 
@@ -62,7 +67,7 @@ public struct ContentView: View {
             } label: {
                 Label("Настройки", systemImage: "gearshape")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.glass)
         }
         .padding(28)
         .frame(width: 360)
@@ -107,16 +112,14 @@ private struct RecordButton: View {
                 }
             }
         } label: {
-            Circle()
-                .fill(isRecording ? Color.red : Color.accentColor)
+            Image(systemName: isRecording ? "stop.fill" : "record.circle")
+                .font(.system(size: 28))
+                .foregroundStyle(.white)
                 .frame(width: 72, height: 72)
-                .overlay {
-                    Image(systemName: isRecording ? "stop.fill" : "record.circle")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.white)
-                }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
+        .tint(isRecording ? .red : .accentColor)
+        .controlSize(.extraLarge)
     }
 }
 
@@ -126,6 +129,17 @@ private struct SourceToggle: View {
     @Binding var isOn: Bool
 
     var body: some View {
+        // A ternary can't pick between GlassButtonStyle and
+        // GlassProminentButtonStyle (different concrete types), so the
+        // branch has to happen at the view level instead.
+        if isOn {
+            toggle.buttonStyle(.glassProminent)
+        } else {
+            toggle.buttonStyle(.glass)
+        }
+    }
+
+    private var toggle: some View {
         Toggle(isOn: $isOn) {
             Label(title, systemImage: systemImage)
         }

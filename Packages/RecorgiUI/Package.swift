@@ -1,9 +1,9 @@
-// swift-tools-version:5.10
+// swift-tools-version:6.2
 import PackageDescription
 
 let package = Package(
     name: "RecorgiUI",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "RecorgiUI", targets: ["RecorgiUI"])
     ],

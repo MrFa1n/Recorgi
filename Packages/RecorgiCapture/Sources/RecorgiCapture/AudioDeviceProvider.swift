@@ -1,7 +1,7 @@
 import AVFoundation
 import RecorgiCore
 
-public struct AudioDeviceProvider {
+public struct AudioDeviceProvider: Sendable {
     public init() {}
 
     public func availableMicrophones() -> [AudioInputDevice] {

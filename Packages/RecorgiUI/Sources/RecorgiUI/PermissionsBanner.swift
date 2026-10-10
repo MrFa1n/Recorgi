@@ -33,11 +33,12 @@ struct PermissionsBanner: View {
             Button("Проверить снова") {
                 permissions.refresh()
             }
+            .buttonStyle(.glass)
             .padding(.top, 2)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.yellow.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+        .glassEffect(.regular.tint(.yellow), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func statusLine(_ title: String, detail: String, settingsURL: String) -> some View {
@@ -50,7 +51,7 @@ struct PermissionsBanner: View {
                         NSWorkspace.shared.open(url)
                     }
                 }
-                .buttonStyle(.link)
+                .buttonStyle(.glass)
             }
             Text(detail)
                 .font(.caption)

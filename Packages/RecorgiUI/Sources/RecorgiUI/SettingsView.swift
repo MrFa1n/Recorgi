@@ -72,6 +72,7 @@ public struct SettingsView: View {
                     Button("Изменить…") {
                         chooseSaveDirectory()
                     }
+                    .buttonStyle(.glass)
                 }
             }
         }

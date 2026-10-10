@@ -23,7 +23,7 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.video</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
+	<string>26.0</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Recorgi contributors. Licensed under GPL-3.0-or-later.</string>
 	<key>NSMicrophoneUsageDescription</key>

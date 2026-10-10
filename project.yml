@@ -2,7 +2,7 @@ name: Recorgi
 options:
   bundleIdPrefix: com.recorgi
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "26.0"
 
 packages:
   RecorgiCore:
@@ -35,7 +35,7 @@ targets:
       path: Recorgi/Info.plist
       properties:
         CFBundleDisplayName: Recorgi
-        LSMinimumSystemVersion: "14.0"
+        LSMinimumSystemVersion: "26.0"
         NSMicrophoneUsageDescription: "Recorgi records your microphone when you turn it on as an audio source."
         NSHumanReadableCopyright: "Recorgi contributors. Licensed under GPL-3.0-or-later."
         LSApplicationCategoryType: public.app-category.video
