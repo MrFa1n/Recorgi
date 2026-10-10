@@ -29,6 +29,12 @@ final class AreaSelectionWindow: NSWindow {
         contentView = view
     }
 
+    // Borderless windows return false for both by default, which silently
+    // blocks all keyboard input (keyDown only ever reaches the key window) —
+    // that's why Enter/Escape never did anything.
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
     func beginSelection() {
         makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
