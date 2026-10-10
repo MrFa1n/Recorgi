@@ -3,8 +3,29 @@ import AppKit
 import RecorgiCore
 import RecorgiCapture
 
+private enum CaptureModeTab: Hashable {
+    case screen, window, area
+
+    var label: String {
+        switch self {
+        case .screen: return "Экран"
+        case .window: return "Окно"
+        case .area: return "Область"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .screen: return "display"
+        case .window: return "macwindow"
+        case .area: return "crop"
+        }
+    }
+}
+
 struct CaptureRegionView: View {
     @ObservedObject var settings: RecordingSettings
+    @State private var mode: CaptureModeTab
     @State private var displays: [DisplayInfo] = []
     @State private var windows: [WindowInfo] = []
     @State private var loadError: String?
@@ -19,107 +40,32 @@ struct CaptureRegionView: View {
     // calls later stopped doing anything.
     @State private var areaHighlighter = AreaHighlighter()
 
+    private let gridColumns = [GridItem(.adaptive(minimum: 200, maximum: 260), spacing: 16)]
+
+    init(settings: RecordingSettings) {
+        self._settings = ObservedObject(wrappedValue: settings)
+        switch settings.captureRegion {
+        case .primaryDisplay, .display:
+            self._mode = State(initialValue: .screen)
+        case .window:
+            self._mode = State(initialValue: .window)
+        case .area:
+            self._mode = State(initialValue: .area)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Область записи")
                     .font(.largeTitle.bold())
 
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Экран", systemImage: "display")
-                            .font(.headline)
+                modePicker
 
-                        if displays.count > 1 {
-                            // Multiple monitors: the distinction actually
-                            // matters here — "Основной дисплей" follows
-                            // whichever screen System Settings currently
-                            // calls primary (can change), while picking a
-                            // specific one locks to that physical display.
-                            regionRow(
-                                systemImage: "display",
-                                title: "Основной дисплей",
-                                subtitle: "Текущий главный экран — следует настройке системы",
-                                isSelected: settings.captureRegion == .primaryDisplay
-                            ) {
-                                settings.captureRegion = .primaryDisplay
-                            }
-
-                            ForEach(displays) { display in
-                                regionRow(
-                                    systemImage: displayIcon(for: display),
-                                    title: display.name,
-                                    subtitle: "\(display.width)×\(display.height)",
-                                    isSelected: settings.captureRegion == .display(display)
-                                ) {
-                                    settings.captureRegion = .display(display)
-                                }
-                            }
-                        } else {
-                            // Single monitor: "primary" and "this specific
-                            // display" are the same thing, so show one row
-                            // instead of two identical-looking options —
-                            // using its real system name (e.g. "Built-in
-                            // Display"), the same one System Settings shows.
-                            regionRow(
-                                systemImage: displays.first.map(displayIcon(for:)) ?? "display",
-                                title: displays.first?.name ?? "Экран",
-                                subtitle: displays.first.map { "\($0.width)×\($0.height)" },
-                                isSelected: isSingleDisplaySelected
-                            ) {
-                                settings.captureRegion = .primaryDisplay
-                            }
-                        }
-                    }
-                }
-
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Окно", systemImage: "macwindow")
-                            .font(.headline)
-
-                        if windows.isEmpty {
-                            Text("Нет открытых окон")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        ForEach(windows) { window in
-                            regionRow(
-                                icon: appIcon(for: window.processID),
-                                title: window.title,
-                                subtitle: window.appName,
-                                isSelected: settings.captureRegion == .window(window)
-                            ) {
-                                settings.captureRegion = .window(window)
-                            }
-                        }
-                    }
-                }
-
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Область", systemImage: "crop")
-                            .font(.headline)
-
-                        if case .area(let display, let rect) = settings.captureRegion {
-                            areaPreview(display: display, rect: rect)
-                            Text("\(Int(rect.width))×\(Int(rect.height)) на «\(display.name)»")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Выдели произвольный прямоугольник перетаскиванием, как в системном скриншоте (⌘⇧5)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Button(isAreaSelected ? "Изменить область…" : "Выбрать область…") {
-                            selectArea()
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.capsule)
-                        .disabled(isSelectingArea || displays.isEmpty)
-                    }
+                switch mode {
+                case .screen: screenContent
+                case .window: windowContent
+                case .area: areaContent
                 }
 
                 if let loadError {
@@ -145,6 +91,136 @@ struct CaptureRegionView: View {
         }
     }
 
+    private var modePicker: some View {
+        Picker("Режим", selection: $mode) {
+            ForEach([CaptureModeTab.screen, .window, .area], id: \.self) { tab in
+                Label(tab.label, systemImage: tab.systemImage).tag(tab)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 420)
+    }
+
+    // MARK: - Screen
+
+    private var screenContent: some View {
+        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 16) {
+            if displays.count > 1 {
+                if let primary = displays.first {
+                    sourceCard(
+                        source: .display(primary.displayID),
+                        title: "Основной дисплей",
+                        subtitle: "Следует настройке системы",
+                        isSelected: settings.captureRegion == .primaryDisplay
+                    ) {
+                        settings.captureRegion = .primaryDisplay
+                    }
+                }
+
+                ForEach(displays) { display in
+                    sourceCard(
+                        source: .display(display.displayID),
+                        title: display.name,
+                        subtitle: "\(display.width)×\(display.height)",
+                        isSelected: settings.captureRegion == .display(display)
+                    ) {
+                        settings.captureRegion = .display(display)
+                    }
+                }
+            } else if let only = displays.first {
+                sourceCard(
+                    source: .display(only.displayID),
+                    title: only.name,
+                    subtitle: "\(only.width)×\(only.height)",
+                    isSelected: isSingleDisplaySelected
+                ) {
+                    settings.captureRegion = .primaryDisplay
+                }
+            } else {
+                Text("Нет доступных экранов")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Window
+
+    private var windowContent: some View {
+        Group {
+            if windows.isEmpty {
+                Text("Нет открытых окон")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 16) {
+                    ForEach(windows) { window in
+                        sourceCard(
+                            source: .window(window.windowID),
+                            title: window.title,
+                            subtitle: window.appName,
+                            isSelected: settings.captureRegion == .window(window)
+                        ) {
+                            settings.captureRegion = .window(window)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Area
+
+    private var areaContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if case .area(let display, let rect) = settings.captureRegion {
+                areaPreview(display: display, rect: rect)
+                Text("\(Int(rect.width))×\(Int(rect.height)) на «\(display.name)»")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else if let primary = displays.first {
+                areaPreview(display: primary, rect: nil)
+                Text("Выдели произвольный прямоугольник перетаскиванием, как в системном скриншоте (⌘⇧5)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(isAreaSelected ? "Изменить область…" : "Выбрать область…") {
+                selectArea()
+            }
+            .buttonStyle(.glassProminent)
+            .buttonBorderShape(.capsule)
+            .disabled(isSelectingArea || displays.isEmpty)
+        }
+    }
+
+    /// A real screenshot of the display, with the selected rect drawn as a
+    /// highlighted crop box on top of it — so it's obvious at a glance
+    /// *what* the chosen area actually contains, not just an abstract box
+    /// with numbers.
+    private func areaPreview(display: DisplayInfo, rect: CGRect?) -> some View {
+        let aspect = display.height > 0 ? CGFloat(display.width) / CGFloat(display.height) : 16.0 / 10.0
+
+        return ZStack(alignment: .topLeading) {
+            SourceThumbnailView(source: .display(display.displayID), aspectRatio: aspect)
+
+            if let rect, display.width > 0, display.height > 0 {
+                GeometryReader { geo in
+                    let scaleX = geo.size.width / CGFloat(display.width)
+                    let scaleY = geo.size.height / CGFloat(display.height)
+                    Rectangle()
+                        .fill(Color.accentColor.opacity(0.18))
+                        .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 2))
+                        .frame(width: rect.width * scaleX, height: rect.height * scaleY)
+                        .offset(x: rect.minX * scaleX, y: rect.minY * scaleY)
+                }
+            }
+        }
+        .frame(maxWidth: 360)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
     /// Keeps the on-screen border in sync with the current selection — shown
     /// whenever an area is picked (and this page is open), hidden otherwise.
     private func syncHighlighter() {
@@ -155,46 +231,54 @@ struct CaptureRegionView: View {
         }
     }
 
+    // MARK: - Source card
+
+    // A ternary can't pick between GlassButtonStyle and
+    // GlassProminentButtonStyle (different concrete types), so the branch
+    // has to happen at the view level instead.
     @ViewBuilder
-    private func regionRow(icon: NSImage? = nil, systemImage: String? = nil, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        // A ternary can't pick between GlassButtonStyle and
-        // GlassProminentButtonStyle (different concrete types), so the
-        // branch has to happen at the view level instead.
+    private func sourceCard(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
         if isSelected {
-            regionButton(icon: icon, systemImage: systemImage, title: title, subtitle: subtitle, isSelected: true, action: action)
+            sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: true, action: action)
                 .buttonStyle(.glassProminent)
         } else {
-            regionButton(icon: icon, systemImage: systemImage, title: title, subtitle: subtitle, isSelected: false, action: action)
+            sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: false, action: action)
                 .buttonStyle(.glass)
         }
     }
 
-    private func regionButton(icon: NSImage?, systemImage: String?, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func sourceCardButton(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                if let icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 20, height: 20)
-                } else if let systemImage {
-                    Image(systemName: systemImage)
-                        .frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack(alignment: .topTrailing) {
+                    SourceThumbnailView(source: source)
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.accentColor)
+                            .font(.title3)
+                            .padding(6)
+                    }
                 }
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
                     if let subtitle {
                         Text(subtitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                }
+                .padding(.horizontal, 2)
             }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonBorderShape(.capsule)
+        .buttonBorderShape(.roundedRectangle)
     }
 
     private var isAreaSelected: Bool {
@@ -202,47 +286,9 @@ struct CaptureRegionView: View {
         return false
     }
 
-    /// A small to-scale map of the display with the selected rect
-    /// highlighted, so it's obvious at a glance *where* the chosen area is —
-    /// not just its width/height as numbers.
-    private func areaPreview(display: DisplayInfo, rect: CGRect) -> some View {
-        let aspect = display.height > 0 ? CGFloat(display.width) / CGFloat(display.height) : 16.0 / 10.0
-        let previewWidth: CGFloat = 220
-        let previewHeight = previewWidth / aspect
-
-        return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.secondary.opacity(0.1))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
-
-            Rectangle()
-                .fill(Color.accentColor.opacity(0.35))
-                .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1.5))
-                .frame(
-                    width: previewWidth * (rect.width / CGFloat(display.width)),
-                    height: previewHeight * (rect.height / CGFloat(display.height))
-                )
-                .offset(
-                    x: previewWidth * (rect.minX / CGFloat(display.width)),
-                    y: previewHeight * (rect.minY / CGFloat(display.height))
-                )
-        }
-        .frame(width: previewWidth, height: previewHeight)
-    }
-
-    private func appIcon(for processID: Int32) -> NSImage? {
-        NSRunningApplication(processIdentifier: processID)?.icon
-    }
-
-    /// Mirrors how System Settings distinguishes displays: a laptop glyph
-    /// for the built-in panel, a plain monitor glyph for anything external.
-    private func displayIcon(for display: DisplayInfo) -> String {
-        display.name.localizedCaseInsensitiveContains("built-in") ? "laptopcomputer" : "display"
-    }
-
     /// On a single-monitor setup, .primaryDisplay and .display(thatDisplay)
     /// are functionally identical — treat either as "selected" so the merged
-    /// row still lights up correctly even if the region was picked before
+    /// card still lights up correctly even if the region was picked before
     /// (e.g. a second monitor got unplugged since).
     private var isSingleDisplaySelected: Bool {
         if case .primaryDisplay = settings.captureRegion { return true }
