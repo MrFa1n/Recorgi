@@ -2,10 +2,10 @@ import AppKit
 
 /// Full-screen transparent overlay that lets the user drag out a rectangle,
 /// the same interaction as macOS's built-in screenshot tool (⌘⇧5)'s area
-/// selection: drag to mark it, the dimmed-except-selection view holds in
-/// place so you can actually see what you picked. Enter confirms; Escape is
-/// two-stage — clears the current rect first, cancels the whole overlay on
-/// the next press. Reports the rect in the view's own local coordinate space
+/// selection: drag to mark it, release to confirm immediately — no separate
+/// Enter press needed, since the result can still be nudged afterward via
+/// the draggable highlight border (AreaHighlightWindow). Escape cancels the
+/// whole overlay. Reports the rect in the view's own local coordinate space
 /// (bottom-left origin) — the caller converts to whatever space it needs.
 final class AreaSelectionWindow: NSWindow {
     private let completion: (CGRect?) -> Void
@@ -57,7 +57,6 @@ private final class AreaSelectionView: NSView {
     var onComplete: ((CGRect?) -> Void)?
     private var startPoint: NSPoint?
     private var currentRect: NSRect?
-    private var isConfirming = false
 
 
     override var acceptsFirstResponder: Bool { true }
@@ -94,7 +93,6 @@ private final class AreaSelectionView: NSView {
     override func mouseDown(with event: NSEvent) {
         startPoint = convert(event.locationInWindow, from: nil)
         currentRect = nil
-        isConfirming = false
         needsDisplay = true
     }
 
@@ -111,37 +109,22 @@ private final class AreaSelectionView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { startPoint = nil }
+        defer { startPoint = nil; currentRect = nil }
         guard let rect = currentRect, rect.width > 4, rect.height > 4 else {
-            currentRect = nil
             needsDisplay = true
             return
         }
-        // Hold the dimmed/hole view here instead of finishing immediately —
-        // otherwise the overlay vanishes the instant you release the mouse
-        // and there's no chance to actually see what got selected.
-        isConfirming = true
-        needsDisplay = true
+        // Confirms immediately on release — no separate Enter press. The
+        // result can still be nudged afterward via the draggable highlight
+        // border, so holding here for a second confirmation step is no
+        // longer pulling its weight.
+        onComplete?(rect)
     }
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
         case 53: // Escape
-            if currentRect != nil {
-                // First Escape: just clear the drawn rect, stay open so the
-                // user can draw a new one — matches the system screenshot
-                // tool's "start over" behavior.
-                currentRect = nil
-                isConfirming = false
-                needsDisplay = true
-            } else {
-                // Second Escape (nothing drawn): cancel out entirely.
-                onComplete?(nil)
-            }
-        case 36, 76: // Return, Enter (numpad)
-            if isConfirming, let rect = currentRect {
-                onComplete?(rect)
-            }
+            onComplete?(nil)
         default:
             super.keyDown(with: event)
         }
@@ -173,8 +156,7 @@ private final class AreaSelectionView: NSView {
             .font: NSFont.systemFont(ofSize: 13, weight: .medium),
             .foregroundColor: NSColor.white
         ]
-        let escHint = currentRect != nil ? "Esc — сбросить" : "Esc — отмена"
-        let text = "Перетащи, чтобы выделить область  ·  Enter — подтвердить  ·  \(escHint)" as NSString
+        let text = "Перетащи, чтобы выделить область  ·  Esc — отмена" as NSString
         let textSize = text.size(withAttributes: attributes)
         let padding: CGFloat = 10
         let origin = NSPoint(x: (bounds.width - textSize.width) / 2, y: bounds.height - textSize.height - 32)
