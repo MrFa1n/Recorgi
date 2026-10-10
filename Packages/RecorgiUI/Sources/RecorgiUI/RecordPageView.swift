@@ -28,6 +28,19 @@ struct RecordPageView: View {
                     }
                 }
 
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Экран", systemImage: "rectangle.on.rectangle")
+                            .font(.headline)
+                        Text(captureRegionSummary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text("Настрой на вкладке «Область записи»")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
                 HStack(alignment: .top, spacing: 16) {
                     sourceCard(
                         title: "Системный звук",
@@ -71,6 +84,15 @@ struct RecordPageView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+        }
+    }
+
+    private var captureRegionSummary: String {
+        switch settings.captureRegion {
+        case .primaryDisplay: return "Основной дисплей"
+        case .display(let d): return d.name
+        case .window(let w): return "Окно: \(w.title.isEmpty ? w.appName : w.title)"
+        case .area(let d, let rect): return "Область \(Int(rect.width))×\(Int(rect.height)) на «\(d.name)»"
         }
     }
 

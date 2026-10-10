@@ -7,6 +7,7 @@ import RecorgiCore
 
 public enum RecordingError: LocalizedError {
     case noDisplayAvailable
+    case windowUnavailable
     case noMicrophoneAvailable
     case microphoneSetupFailed
     case audioApplicationUnavailable
@@ -14,6 +15,7 @@ public enum RecordingError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .noDisplayAvailable: return "No display available to record."
+        case .windowUnavailable: return "The selected window is no longer available to record."
         case .noMicrophoneAvailable: return "No microphone available."
         case .microphoneSetupFailed: return "Could not set up the microphone input."
         case .audioApplicationUnavailable: return "The selected app is no longer available to capture audio from."
@@ -56,7 +58,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         let writer = try AVAssetWriter(outputURL: fileURL, fileType: .mov)
 
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard let display = content.displays.first else {
+        guard let primaryDisplay = content.displays.first else {
             throw RecordingError.noDisplayAvailable
         }
 
@@ -68,10 +70,42 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         }
         let capturesWholeSystemAudio = settings.isSystemAudioEnabled && !isAppScoped
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
-        let scale = Self.backingScaleFactor(for: display.displayID)
-        let pixelWidth = Int(Double(display.width) * scale)
-        let pixelHeight = Int(Double(display.height) * scale)
+        let filter: SCContentFilter
+        let pixelWidth: Int
+        let pixelHeight: Int
+        var sourceRect: CGRect?
+
+        switch settings.captureRegion {
+        case .primaryDisplay:
+            filter = SCContentFilter(display: primaryDisplay, excludingWindows: [])
+            let scale = Self.backingScaleFactor(for: primaryDisplay.displayID)
+            pixelWidth = Int(Double(primaryDisplay.width) * scale)
+            pixelHeight = Int(Double(primaryDisplay.height) * scale)
+
+        case .display(let info):
+            let display = content.displays.first(where: { $0.displayID == info.displayID }) ?? primaryDisplay
+            filter = SCContentFilter(display: display, excludingWindows: [])
+            let scale = Self.backingScaleFactor(for: display.displayID)
+            pixelWidth = Int(Double(display.width) * scale)
+            pixelHeight = Int(Double(display.height) * scale)
+
+        case .window(let info):
+            guard let window = content.windows.first(where: { $0.windowID == info.windowID }) else {
+                throw RecordingError.windowUnavailable
+            }
+            filter = SCContentFilter(desktopIndependentWindow: window)
+            let scale = NSScreen.main?.backingScaleFactor ?? 2
+            pixelWidth = Int(window.frame.width * scale)
+            pixelHeight = Int(window.frame.height * scale)
+
+        case .area(let info, let rect):
+            let display = content.displays.first(where: { $0.displayID == info.displayID }) ?? primaryDisplay
+            filter = SCContentFilter(display: display, excludingWindows: [])
+            let scale = Self.backingScaleFactor(for: display.displayID)
+            pixelWidth = Int(rect.width * scale)
+            pixelHeight = Int(rect.height * scale)
+            sourceRect = rect
+        }
 
         let config = SCStreamConfiguration()
         config.width = pixelWidth
@@ -80,6 +114,10 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         config.capturesAudio = capturesWholeSystemAudio
         config.sampleRate = 48_000
         config.channelCount = 2
+        if let sourceRect {
+            config.sourceRect = sourceRect
+            config.destinationRect = CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight)
+        }
 
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -131,7 +169,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             guard let match = content.applications.first(where: { $0.processID == app.processID }) else {
                 throw RecordingError.audioApplicationUnavailable
             }
-            let appFilter = SCContentFilter(display: display, including: [match], exceptingWindows: [])
+            let appFilter = SCContentFilter(display: primaryDisplay, including: [match], exceptingWindows: [])
             let appConfig = SCStreamConfiguration()
             // We only want this stream's audio; keep its video output tiny
             // since we never register a .screen handler for it.

@@ -5,6 +5,7 @@ import Combine
 /// matching the "just works" capture flow of Windows' built-in recorders —
 /// the user opts out rather than having to discover and opt in.
 public final class RecordingSettings: ObservableObject {
+    @Published public var captureRegion: CaptureRegion = .primaryDisplay
     @Published public var isSystemAudioEnabled: Bool = true
     @Published public var systemAudioScope: SystemAudioScope = .entireSystem
     @Published public var isMicrophoneEnabled: Bool = true
