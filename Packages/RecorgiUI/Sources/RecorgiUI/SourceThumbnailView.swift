@@ -15,11 +15,11 @@ struct SourceThumbnailView: View {
     /// Grid cards (displays, windows) use `.fixedHeight`: every card needs
     /// to look the same regardless of each source's real aspect ratio
     /// (a tall Keychain Access window next to a wide YouTube tab), so the
-    /// box height is constant and the image fill-crops into it. The area
-    /// picker's preview uses `.aspectFit` instead, because its crop-box
-    /// overlay is positioned by scaling the *display's own* proportions —
-    /// cropping the preview itself would make that math (and the preview)
-    /// wrong, so it must show the whole display, uncropped.
+    /// box itself is a constant size. The area picker's preview uses
+    /// `.aspectFit` instead, because its crop-box overlay is positioned by
+    /// scaling the *display's own* proportions — the preview has to show
+    /// the whole display at its own aspect ratio for that math to be
+    /// right, so there it's the box, not just the image, that adapts.
     enum SizingMode {
         case fixedHeight(CGFloat)
         case aspectFit(CGFloat)
@@ -38,9 +38,17 @@ struct SourceThumbnailView: View {
                 .fill(Color.black.opacity(0.3))
 
             if let image {
+                // .fit, not .fill: the whole image stays visible, scaled to
+                // the box by whichever dimension is tighter (in practice
+                // almost always width, since windows tend to be wider than
+                // this box is tall) — never cropped. Whatever's left over
+                // shows the placeholder fill behind it rather than cropping
+                // in to erase it, and since the box itself is still the
+                // same fixed size for every card either way, cards stay
+                // uniform regardless of each source's own aspect ratio.
                 Image(nsImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .aspectRatio(contentMode: .fit)
             } else {
                 ProgressView()
                     .controlSize(.small)
