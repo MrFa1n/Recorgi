@@ -192,20 +192,23 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             sourceRect = rect
         }
 
-        // Cap the encode resolution at 1920 on the longer edge — keeps
-        // real-time H.264 encoding comfortably sustainable regardless of
-        // the physical display's native (often Retina) resolution.
-        let maxDimension = 1920.0
+        // Cap the encode resolution on the longer edge, per the chosen
+        // RecordingQuality — keeps real-time H.264/HEVC encoding
+        // comfortably sustainable regardless of the physical display's
+        // native (often Retina) resolution. .high's 1920 is the original,
+        // already-proven-stable ceiling; the lower presets only ever go
+        // smaller, never above it.
+        let maxDimension = Double(settings.recordingQuality.maxDimension)
         let longerEdge = Double(max(rawPixelWidth, rawPixelHeight))
         let downscale = longerEdge > maxDimension ? maxDimension / longerEdge : 1.0
         let pixelWidth = Self.evenified(Double(rawPixelWidth) * downscale)
         let pixelHeight = Self.evenified(Double(rawPixelHeight) * downscale)
 
         // SCStream delivers frames as fast as the display refreshes (120Hz
-        // on ProMotion) unless capped — 30fps is plenty for screen
-        // recording and well within what the encoder can sustain
+        // on ProMotion) unless capped — the chosen RecordingQuality's frame
+        // rate is always comfortably within what the encoder can sustain
         // continuously at the resolution above.
-        let frameRate = 30
+        let frameRate = settings.recordingQuality.frameRate
 
         let config = SCStreamConfiguration()
         config.width = pixelWidth

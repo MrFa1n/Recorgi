@@ -67,6 +67,28 @@ struct GeneralSettingsView: View {
                             .pickerStyle(.segmented)
                             .tint(themeColor)
                         }
+
+                        // Neither recording path exposes an actual bitrate
+                        // control — this adjusts resolution/frame rate
+                        // instead, the one thing we do fully control
+                        // ourselves on both paths. See RecordingQuality's
+                        // own doc comment.
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Степень сжатия")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Picker("Степень сжатия", selection: $settings.recordingQuality) {
+                                ForEach(RecordingQuality.allCases, id: \.self) { quality in
+                                    Text(quality.label).tag(quality)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .tint(themeColor)
+                            Text(settings.recordingQuality.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 

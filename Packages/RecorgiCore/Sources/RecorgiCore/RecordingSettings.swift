@@ -43,10 +43,17 @@ public final class RecordingSettings: ObservableObject {
         didSet { Self.persist(videoContainer) }
     }
 
+    /// See RecordingQuality's own doc comment for why this is
+    /// resolution/frame-rate presets rather than a bitrate slider.
+    @Published public var recordingQuality: RecordingQuality = .high {
+        didSet { Self.persist(recordingQuality) }
+    }
+
     private static let accentColorDefaultsKey = "recorgi.accentColor"
     private static let appearanceModeDefaultsKey = "recorgi.appearanceMode"
     private static let videoCodecDefaultsKey = "recorgi.videoCodec"
     private static let videoContainerDefaultsKey = "recorgi.videoContainer"
+    private static let recordingQualityDefaultsKey = "recorgi.recordingQuality"
 
     public init() {
         let moviesDirectory = FileManager.default
@@ -58,6 +65,7 @@ public final class RecordingSettings: ObservableObject {
         self.appearanceMode = Self.loadPersistedAppearanceMode()
         self.videoCodec = Self.loadPersistedVideoCodec()
         self.videoContainer = Self.loadPersistedVideoContainer()
+        self.recordingQuality = Self.loadPersistedRecordingQuality()
     }
 
     private static func loadPersistedAccentColor() -> AccentColorChoice? {
@@ -100,5 +108,13 @@ public final class RecordingSettings: ObservableObject {
 
     private static func persist(_ container: VideoContainer) {
         UserDefaults.standard.set(container.rawValue, forKey: videoContainerDefaultsKey)
+    }
+
+    private static func loadPersistedRecordingQuality() -> RecordingQuality {
+        UserDefaults.standard.string(forKey: recordingQualityDefaultsKey).flatMap(RecordingQuality.init(rawValue:)) ?? .high
+    }
+
+    private static func persist(_ quality: RecordingQuality) {
+        UserDefaults.standard.set(quality.rawValue, forKey: recordingQualityDefaultsKey)
     }
 }
