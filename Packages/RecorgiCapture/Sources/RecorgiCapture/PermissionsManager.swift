@@ -20,6 +20,7 @@ public final class PermissionsManager: ObservableObject {
     public func refresh() {
         microphoneStatus = Self.map(AVCaptureDevice.authorizationStatus(for: .audio))
         screenRecordingStatus = CGPreflightScreenCaptureAccess() ? .granted : .notDetermined
+        Log.permissions.notice("refresh(): mic=\(String(describing: self.microphoneStatus), privacy: .public) screenRecording=\(String(describing: self.screenRecordingStatus), privacy: .public)")
     }
 
     public func requestAll() async {
@@ -33,6 +34,7 @@ public final class PermissionsManager: ObservableObject {
         let granted = await AVCaptureDevice.requestAccess(for: .audio)
         let status: PermissionStatus = granted ? .granted : .denied
         microphoneStatus = status
+        Log.permissions.notice("requestMicrophone() -> \(String(describing: status), privacy: .public)")
         return status
     }
 
@@ -46,9 +48,11 @@ public final class PermissionsManager: ObservableObject {
             _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             status = .granted
         } catch {
+            Log.permissions.notice("requestScreenRecording(): SCShareableContent fetch threw \(error.localizedDescription, privacy: .public), falling back to CGPreflightScreenCaptureAccess")
             status = CGPreflightScreenCaptureAccess() ? .granted : .denied
         }
         screenRecordingStatus = status
+        Log.permissions.notice("requestScreenRecording() -> \(String(describing: status), privacy: .public)")
         return status
     }
 

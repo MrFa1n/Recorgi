@@ -96,6 +96,9 @@ public final class GlobalHotkeyManager: ObservableObject {
         // is expected to warn about duplicate bindings on its own.
         if status == noErr, let ref {
             hotKeyRefs[slot.rawValue] = ref
+            Log.hotkeys.notice("registered \(String(describing: slot), privacy: .public) -> \(binding.displayLabel, privacy: .public)")
+        } else {
+            Log.hotkeys.error("RegisterEventHotKey failed for \(String(describing: slot), privacy: .public) (\(binding.displayLabel, privacy: .public)), status=\(status, privacy: .public) — likely already bound to another slot")
         }
     }
 
@@ -128,6 +131,7 @@ public final class GlobalHotkeyManager: ObservableObject {
 
     private func handle(id: UInt32) {
         guard let slot = Slot(rawValue: id), let settings, let engine else { return }
+        Log.hotkeys.notice("fired: \(String(describing: slot), privacy: .public)")
         switch slot {
         case .startStop:
             Task {

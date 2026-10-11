@@ -1,4 +1,5 @@
 import AppKit
+import RecorgiCore
 
 @MainActor
 public final class AreaSelector {
@@ -13,6 +14,7 @@ public final class AreaSelector {
     /// coordinates.
     public func selectArea(on displayID: UInt32) async -> CGRect? {
         guard let screen = NSScreen.screens.first(where: { Self.displayID(for: $0) == displayID }) else {
+            Log.capture.error("AreaSelector: no NSScreen found for displayID=\(displayID, privacy: .public)")
             return nil
         }
 

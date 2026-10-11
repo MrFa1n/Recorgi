@@ -10,10 +10,14 @@ public struct AudioDeviceProvider: Sendable {
             mediaType: .audio,
             position: .unspecified
         )
-        return discovery.devices.map { AudioInputDevice(id: $0.uniqueID, name: $0.localizedName) }
+        let devices = discovery.devices.map { AudioInputDevice(id: $0.uniqueID, name: $0.localizedName) }
+        Log.devices.debug("availableMicrophones(): found \(devices.count, privacy: .public)")
+        return devices
     }
 
     public func availableOutputDevices() -> [AudioOutputDevice] {
-        CoreAudioOutputDeviceLister.listOutputDevices()
+        let devices = CoreAudioOutputDeviceLister.listOutputDevices()
+        Log.devices.debug("availableOutputDevices(): found \(devices.count, privacy: .public)")
+        return devices
     }
 }

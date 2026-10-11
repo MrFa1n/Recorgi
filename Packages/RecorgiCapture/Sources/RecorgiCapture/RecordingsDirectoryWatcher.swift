@@ -1,4 +1,5 @@
 import Foundation
+import RecorgiCore
 
 /// Watches a directory for additions/removals/renames (not file-content
 /// writes) and calls back — so the Recordings library picks up changes made
@@ -13,7 +14,10 @@ public final class RecordingsDirectoryWatcher {
         stop()
 
         let fd = open(directory.path, O_EVTONLY)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else {
+            Log.library.error("RecordingsDirectoryWatcher: could not open save directory for watching (fd=\(fd, privacy: .public))")
+            return
+        }
 
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
         source.setEventHandler { [weak self] in

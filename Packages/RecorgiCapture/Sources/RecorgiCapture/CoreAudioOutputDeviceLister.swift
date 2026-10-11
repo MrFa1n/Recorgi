@@ -28,12 +28,18 @@ struct CoreAudioOutputDeviceLister {
 
         var dataSize: UInt32 = 0
         var status = AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize)
-        guard status == noErr, dataSize > 0 else { return nil }
+        guard status == noErr, dataSize > 0 else {
+            Log.devices.error("CoreAudioOutputDeviceLister: AudioObjectGetPropertyDataSize failed, status=\(status, privacy: .public)")
+            return nil
+        }
 
         let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
         var deviceIDs = [AudioDeviceID](repeating: AudioDeviceID(), count: count)
         status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize, &deviceIDs)
-        guard status == noErr else { return nil }
+        guard status == noErr else {
+            Log.devices.error("CoreAudioOutputDeviceLister: AudioObjectGetPropertyData failed, status=\(status, privacy: .public)")
+            return nil
+        }
         return deviceIDs
     }
 

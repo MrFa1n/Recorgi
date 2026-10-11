@@ -1,5 +1,6 @@
 import ScreenCaptureKit
 import AppKit
+import RecorgiCore
 
 /// Captures small live screenshots of displays/windows for the capture-
 /// region picker's previews, so picking a source shows what's actually on
@@ -37,6 +38,7 @@ public struct CaptureThumbnailLoader: Sendable {
         config.height = max(size.height, 2)
         config.scalesToFit = true
         guard let cgImage = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) else {
+            Log.devices.debug("CaptureThumbnailLoader: captureImage failed")
             return nil
         }
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))

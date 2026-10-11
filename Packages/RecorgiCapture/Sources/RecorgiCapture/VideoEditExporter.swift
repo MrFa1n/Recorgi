@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import RecorgiCore
 
 public enum VideoEditError: LocalizedError {
     case noVideoTrack
@@ -32,11 +33,14 @@ public struct VideoEditExporter: Sendable {
         speed: Double,
         onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
+        Log.library.notice("export(): starting, range=\(range.duration.seconds, privacy: .public)s speed=\(speed, privacy: .public)x source=\(sourceURL.lastPathComponent, privacy: .public)")
+
         let asset = AVURLAsset(url: sourceURL)
         let composition = AVMutableComposition()
 
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         guard let sourceVideoTrack = videoTracks.first else {
+            Log.library.error("export(): source has no video track")
             throw VideoEditError.noVideoTrack
         }
 
@@ -64,6 +68,7 @@ public struct VideoEditExporter: Sendable {
             .appendingPathComponent("\(baseName) (изменено \(Self.timestampSuffix())).mov")
 
         guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+            Log.library.error("export(): AVAssetExportSession init failed")
             throw VideoEditError.exportSetupFailed
         }
 
@@ -86,7 +91,9 @@ public struct VideoEditExporter: Sendable {
 
         do {
             try await session.export(to: outputURL, as: .mov)
+            Log.library.notice("export(): ok -> \(outputURL.lastPathComponent, privacy: .public)")
         } catch {
+            Log.library.error("export(): failed: \(error.localizedDescription, privacy: .public)")
             throw VideoEditError.exportFailed(error.localizedDescription)
         }
 

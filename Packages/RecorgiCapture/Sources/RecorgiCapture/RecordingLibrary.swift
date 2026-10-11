@@ -34,7 +34,10 @@ public struct RecordingLibrary: Sendable {
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
             options: [.skipsHiddenFiles]
-        ) else { return [] }
+        ) else {
+            Log.library.error("recordings(in:): could not list contents of save directory")
+            return []
+        }
 
         return entries
             .filter { $0.pathExtension.lowercased() == "mov" }
@@ -76,7 +79,9 @@ public struct RecordingLibrary: Sendable {
 
         do {
             try FileManager.default.moveItem(at: recording.url, to: newURL)
+            Log.library.notice("rename(): ok")
         } catch {
+            Log.library.error("rename(): moveItem failed: \(error.localizedDescription, privacy: .public)")
             throw RecordingRenameError.renameFailed(error.localizedDescription)
         }
 

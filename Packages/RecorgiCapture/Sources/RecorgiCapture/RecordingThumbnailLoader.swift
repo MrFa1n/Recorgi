@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import RecorgiCore
 
 /// Generates and caches small preview thumbnails for recorded .mov files,
 /// for the Recordings library list — so a long list of similarly-named
@@ -29,6 +30,7 @@ public actor RecordingThumbnailLoader {
         let time = CMTime(seconds: 0.3, preferredTimescale: 600)
 
         guard let result = try? await generator.image(at: time) else {
+            Log.library.debug("RecordingThumbnailLoader: image generation failed for \(url.lastPathComponent, privacy: .public)")
             return nil
         }
 
