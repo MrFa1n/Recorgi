@@ -4,6 +4,7 @@ import RecorgiCore
 
 struct GeneralSettingsView: View {
     @ObservedObject var settings: RecordingSettings
+    @State private var exportError: String?
 
     var body: some View {
         ScrollView {
@@ -173,6 +174,24 @@ struct GeneralSettingsView: View {
                         ColorPicker("Свой цвет", selection: customColorBinding, supportsOpacity: false)
                     }
                 }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Логи", systemImage: "doc.text.magnifyingglass")
+                            .font(.headline)
+
+                        Text("Если что-то пошло не так, экспортируй журнал текущего запуска и приложи его к описанию проблемы.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Button("Экспортировать логи…") {
+                            exportLogs()
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.capsule)
+                        .hoverCursor()
+                    }
+                }
             }
             .padding(24)
             // Extra bottom clearance for the floating TransportBar — it's
@@ -186,6 +205,14 @@ struct GeneralSettingsView: View {
             // always need scrolling) let a card drift down far enough to
             // sit under the floating TransportBar, stealing its clicks.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .alert("Ошибка", isPresented: Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } }
+        )) {
+            Button("ОК", role: .cancel) { exportError = nil }
+        } message: {
+            Text(exportError ?? "")
         }
     }
 
@@ -266,6 +293,18 @@ struct GeneralSettingsView: View {
         panel.directoryURL = settings.saveDirectory
         if panel.runModal() == .OK, let url = panel.url {
             settings.saveDirectory = url
+        }
+    }
+
+    private func exportLogs() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = LogExporter.suggestedFilename()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let text = try LogExporter.export()
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            exportError = error.localizedDescription
         }
     }
 }
