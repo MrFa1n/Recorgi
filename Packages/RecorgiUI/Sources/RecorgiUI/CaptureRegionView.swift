@@ -322,22 +322,35 @@ struct CaptureRegionView: View {
     // has to happen at the view level instead.
     @ViewBuilder
     private func sourceCard(source: SourceThumbnailView.Source, title: String, subtitle: String?, isSelected: Bool, cardWidth: CGFloat, action: @escaping () -> Void) -> some View {
-        // An exact .frame(width:) on the Button, not .frame(maxWidth:
-        // .infinity) — the glass button styles apparently hug their content
+        // An exact .frame(width:height:) on the Button, applied AFTER
+        // .buttonStyle — not .frame(maxWidth: .infinity), and not just
+        // width. The glass button styles apparently hug their content
         // tightly enough that even an explicit maxWidth of infinity didn't
-        // make them fill the grid column; an exact width is a much harder
-        // constraint and reliably wins. cardWidth comes from the caller
-        // (ultimately body's GeometryReader) so every card, in every row,
-        // gets the identical value.
+        // make them fill the grid column, and — the part that was still
+        // missing — the style itself adds its own padding around the
+        // label when drawing the bezel, taller than what the label's own
+        // inner .frame(height: sourceCardHeight) asked for. With only
+        // width pinned, that extra height went unconstrained: rows ended
+        // up taller than sourceCardHeight by a few points each, which
+        // LazyVGrid's single `spacing` value can't tell apart from a
+        // genuinely bigger gap — so the vertical gap between rows read as
+        // visibly larger than the horizontal gap between cards in the same
+        // row, and the thumbnail (positioned by the label's own fixed
+        // layout) could end up sitting past the bezel's redrawn edge.
+        // Pinning height too forces the bezel to exactly match the content
+        // bounds, the same way pinning width already had to.
+        // cardWidth comes from the caller (ultimately body's
+        // GeometryReader) so every card, in every row, gets the identical
+        // value.
         if isSelected {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: true, cardWidth: cardWidth, action: action)
                 .buttonStyle(.glassProminent)
                 .tint(themeColor)
-                .frame(width: cardWidth)
+                .frame(width: cardWidth, height: sourceCardHeight)
         } else {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: false, cardWidth: cardWidth, action: action)
                 .buttonStyle(.glass)
-                .frame(width: cardWidth)
+                .frame(width: cardWidth, height: sourceCardHeight)
         }
     }
 
