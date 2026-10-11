@@ -60,8 +60,14 @@ struct RecordPageView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // "Unbounded-Bold" ships as Recorgi/Fonts/Unbounded-Bold.ttf in
+            // the app target and is registered process-wide via the
+            // ATSApplicationFontsPath key in Info.plist — nothing in this
+            // package needs to import or know about that file directly,
+            // just the font's PostScript name. Size matches .largeTitle's
+            // own point size.
             Text("Recorgi")
-                .font(.largeTitle.bold())
+                .font(.custom("Unbounded-Bold", size: 34))
             Text(isRecording ? "Идёт запись…" : "Готово к записи")
                 .font(.title3)
                 .foregroundStyle(isRecording ? .red : .secondary)

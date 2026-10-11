@@ -57,3 +57,11 @@ targets:
         NSMicrophoneUsageDescription: "Recorgi records your microphone when you turn it on as an audio source."
         NSHumanReadableCopyright: "Recorgi contributors. Licensed under GPL-3.0-or-later."
         LSApplicationCategoryType: public.app-category.video
+        # Registers Recorgi/Fonts/Unbounded-Bold.ttf (copied into the app
+        # bundle's Resources as a plain resource, same as any other
+        # non-source file under the target's `sources:` path) process-wide
+        # at launch — "." means the bundle's own top-level Resources dir.
+        # Lets Font.custom("Unbounded-Bold", ...) resolve anywhere in the
+        # process, including RecorgiUI, without that package needing to
+        # import or even know about the font file itself.
+        ATSApplicationFontsPath: "."
