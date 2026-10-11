@@ -52,6 +52,13 @@ targets:
     info:
       path: Recorgi/Info.plist
       properties:
+        # XcodeGen's own Info.plist generator defaults these two to a
+        # hardcoded "1.0"/"1" when they're absent here, silently
+        # overwriting MARKETING_VERSION/CURRENT_PROJECT_VERSION above on
+        # every `xcodegen generate` — spell them out explicitly so the
+        # built app's version actually tracks project.yml.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleDisplayName: Recorgi
         LSMinimumSystemVersion: "26.0"
         NSMicrophoneUsageDescription: "Recorgi records your microphone when you turn it on as an audio source."
