@@ -219,7 +219,42 @@ public final class AreaHighlighter {
     /// `setInteractive(true)` was called.
     public var onRectChange: ((CGRect) -> Void)?
 
-    public init() {}
+    // In "follow the system" mode, setAccentColor stores the dynamic
+    // .controlAccentColor constant itself, which *resolves* to the live
+    // system accent at draw time — but these are plain custom NSViews, not
+    // native AppKit controls, so nothing ever tells them *when* to redraw
+    // after the user changes the system accent color in System Settings.
+    // Native controls get that nudge automatically; a bare NSView.draw(_:)
+    // doesn't, so without this observer the border/handles stay stuck with
+    // whatever was on screen the last time something else (show/move)
+    // happened to trigger a redraw.
+    // nonisolated(unsafe): only ever written once in init and read once in
+    // deinit (a nonisolated context even on a @MainActor class), never
+    // mutated concurrently — NotificationCenter.removeObserver is itself
+    // thread-safe to call with a stale/foreign token.
+    nonisolated(unsafe) private var systemColorObserver: NSObjectProtocol?
+
+    public init() {
+        systemColorObserver = NotificationCenter.default.addObserver(
+            forName: NSColor.systemColorsDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.redrawAllViews() }
+        }
+    }
+
+    deinit {
+        if let systemColorObserver {
+            NotificationCenter.default.removeObserver(systemColorObserver)
+        }
+    }
+
+    private func redrawAllViews() {
+        borderWindow.contentView?.needsDisplay = true
+        for window in handleWindows.values { window.contentView?.needsDisplay = true }
+        for window in edgeWindows.values { window.contentView?.needsDisplay = true }
+    }
 
     /// The border window's own CGWindowID, for callers that need to
     /// exclude it from a capture (so the border itself never ends up baked

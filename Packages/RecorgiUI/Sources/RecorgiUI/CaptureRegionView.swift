@@ -30,6 +30,10 @@ struct CaptureRegionView: View {
     @State private var windows: [WindowInfo] = []
     @State private var loadError: String?
     @State private var isSelectingArea = false
+    // Bumped on NSColor.systemColorsDidChangeNotification so this view's
+    // body actually re-renders when the system accent changes while in
+    // "follow the system" mode — see the .onReceive below.
+    @State private var systemColorTick = 0
 
     private let sourceProvider = CaptureSourceProvider()
     private let areaSelector = AreaSelector()
@@ -141,6 +145,17 @@ struct CaptureRegionView: View {
         }
         .onChange(of: settings.accentColor) {
             areaHighlighter.setAccentColor(themeNSColor)
+        }
+        // In "follow the system" mode (settings.accentColor == nil),
+        // changing the system accent color in System Settings doesn't
+        // change settings.accentColor itself, so the .onChange above never
+        // fires — this is the signal that actually catches that case, for
+        // this view's own Color.accentColor-based crop overlay/checkmark.
+        .onReceive(NotificationCenter.default.publisher(for: NSColor.systemColorsDidChangeNotification)) { _ in
+            if settings.accentColor == nil {
+                areaHighlighter.setAccentColor(themeNSColor)
+                systemColorTick += 1
+            }
         }
         .onDisappear {
             areaHighlighter.hide()
