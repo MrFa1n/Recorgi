@@ -34,6 +34,13 @@ private struct RecordingSection: Identifiable {
     var id: String { label }
 }
 
+// A plain top-level constant, not a static member of the View struct: a
+// static let there is implicitly MainActor-isolated (same isolation as
+// the View itself), which the Sendable closure onGeometryChange(of:)
+// takes can't reference. This has no isolation to begin with, so it's
+// fine from either context.
+private let recordingsScrollCoordinateSpace = "recordingsScroll"
+
 struct RecordingsLibraryView: View {
     let saveDirectory: URL
     @State private var recordings: [RecordingFile] = []
@@ -45,8 +52,17 @@ struct RecordingsLibraryView: View {
     @State private var renameError: String?
     @State private var isSelecting = false
     @State private var selectedIDs: Set<URL> = []
+    // The last item explicitly clicked (not one swept in by a shift-click
+    // range) — the anchor a following shift-click extends from, same as
+    // Finder/Mail.
+    @State private var lastSelectedID: URL?
     @State private var pendingDelete: [RecordingFile]?
     @State private var deleteError: String?
+    // Whether the controls row (with its "Удалить" button, while
+    // selecting) is still at least partly visible — tracked so the
+    // floating bottom-trailing delete button only shows up once it's
+    // scrolled out of view, not permanently alongside it.
+    @State private var isControlsRowVisible = true
     @Environment(\.accentTint) private var accentTint
     // @State, not `let` — same reason as CaptureRegionView's AreaHighlighter:
     // SwiftUI recreates this View struct on every re-render, and a plain
@@ -68,6 +84,9 @@ struct RecordingsLibraryView: View {
                     .font(.largeTitle.bold())
 
                 controls
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(recordingsScrollCoordinateSpace)) }) { _, newFrame in
+                        isControlsRowVisible = newFrame.maxY > 0
+                    }
 
                 if recordings.isEmpty {
                     GlassCard {
@@ -103,6 +122,15 @@ struct RecordingsLibraryView: View {
             // by default on macOS, which could let a card drift down
             // under the floating TransportBar.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .coordinateSpace(name: recordingsScrollCoordinateSpace)
+        // Fixed relative to the ScrollView's own (non-scrolling) bounds —
+        // not inside the scrolling content — so it stays put at the
+        // bottom-trailing corner as the list scrolls underneath it, same
+        // technique ContentView uses to float TransportBar over each page.
+        .overlay(alignment: .bottomTrailing) {
+            floatingDeleteButton
+                .animation(.easeOut(duration: 0.2), value: isControlsRowVisible)
         }
         .task(id: saveDirectory) {
             refresh()
@@ -236,6 +264,28 @@ struct RecordingsLibraryView: View {
         }
     }
 
+    /// Stand-in for the controls row's own "Удалить" button once that's
+    /// scrolled out of view — same action, just reachable without
+    /// scrolling back up.
+    @ViewBuilder
+    private var floatingDeleteButton: some View {
+        if isSelecting && !isControlsRowVisible {
+            Button {
+                pendingDelete = recordings.filter { selectedIDs.contains($0.id) }
+            } label: {
+                Label("Удалить (\(selectedIDs.count))", systemImage: "trash")
+            }
+            .buttonStyle(.glassProminent)
+            .buttonBorderShape(.capsule)
+            .tint(.red)
+            .disabled(selectedIDs.isEmpty)
+            .hoverCursor()
+            .padding(.trailing, 20)
+            .padding(.bottom, 20)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
     @ViewBuilder
     private func row(for recording: RecordingFile) -> some View {
         let isSelected = selectedIDs.contains(recording.id)
@@ -243,7 +293,7 @@ struct RecordingsLibraryView: View {
             HStack {
                 if isSelecting {
                     Button {
-                        toggleSelection(recording)
+                        selectTapped(recording)
                     } label: {
                         Group {
                             if isSelected {
@@ -334,7 +384,7 @@ struct RecordingsLibraryView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if isSelecting {
-                toggleSelection(recording)
+                selectTapped(recording)
             }
         }
     }
@@ -427,6 +477,32 @@ struct RecordingsLibraryView: View {
 
     // MARK: - Selection & delete
 
+    /// The currently visible recordings in on-screen order (grouped +
+    /// sorted + searched) — the sequence a shift-click range is measured
+    /// across, same list the rows themselves are drawn from.
+    private var flatRecordings: [RecordingFile] {
+        sections.flatMap { $0.items }
+    }
+
+    /// Plain click: toggle just this one. Shift-click: extend/add the
+    /// whole range from the last explicitly-clicked item to this one,
+    /// same as Finder/Mail — lets you pick a start, scroll, shift-click an
+    /// end, and get everything between without clicking each one.
+    private func selectTapped(_ recording: RecordingFile) {
+        if NSEvent.modifierFlags.contains(.shift),
+           let anchor = lastSelectedID,
+           let anchorIndex = flatRecordings.firstIndex(where: { $0.id == anchor }),
+           let targetIndex = flatRecordings.firstIndex(where: { $0.id == recording.id }) {
+            let range = anchorIndex <= targetIndex ? anchorIndex...targetIndex : targetIndex...anchorIndex
+            for item in flatRecordings[range] {
+                selectedIDs.insert(item.id)
+            }
+        } else {
+            toggleSelection(recording)
+        }
+        lastSelectedID = recording.id
+    }
+
     private func toggleSelection(_ recording: RecordingFile) {
         if selectedIDs.contains(recording.id) {
             selectedIDs.remove(recording.id)
@@ -438,6 +514,7 @@ struct RecordingsLibraryView: View {
     private func endSelecting() {
         isSelecting = false
         selectedIDs.removeAll()
+        lastSelectedID = nil
     }
 
     private var deleteConfirmationTitle: String {
