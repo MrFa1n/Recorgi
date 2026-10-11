@@ -33,6 +33,8 @@ Recorgi records your screen — the whole display, a single display, a specific 
 
 **Known limitation:** the UI is currently Russian-only.
 
+See [CHANGELOG.md](CHANGELOG.md) for what shipped in each version — it's also bundled into every `.dmg` built by `Scripts/make-dmg.sh`.
+
 ## Screenshots
 
 > Coming soon. If you'd like to help: launch Recorgi (see below), then for each page run `screencapture -i docs/images/screenshots/<name>.png` from a terminal and click the window — save as `record.png`, `capture-region.png`, `audio-sources.png`, `library.png`, `settings.png`, and `menubar.png` to match what a future revision of this README will embed.
