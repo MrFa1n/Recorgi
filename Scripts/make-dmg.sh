@@ -40,6 +40,7 @@ trap 'rm -rf "$STAGING_DIR"' EXIT
 
 cp -R "$APP_PATH" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
+cp CHANGELOG.md "$STAGING_DIR/Changelog.md"
 
 mkdir -p dist
 DMG_PATH="dist/${APP_NAME}-${VERSION}.dmg"
