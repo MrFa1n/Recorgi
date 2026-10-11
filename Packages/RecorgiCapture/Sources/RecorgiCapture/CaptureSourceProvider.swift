@@ -45,6 +45,17 @@ public struct CaptureSourceProvider: Sendable {
         return "Дисплей"
     }
 
+    /// `.regular` is macOS's own definition of "a foreground app with a
+    /// Dock icon and a menu bar" — exactly the set of apps someone would
+    /// recognize and actually want to record, as opposed to background
+    /// system helpers (WindowManager's Dock bounce/zoom animation plate,
+    /// third-party uninstaller helpers, input-method agents, …) that can
+    /// still own a layer-0 window with a real-looking title.
+    @MainActor
+    private static func regularAppPIDs(among pids: Set<pid_t>) -> Set<pid_t> {
+        pids.filter { NSRunningApplication(processIdentifier: $0)?.activationPolicy == .regular }
+    }
+
     public func availableWindows() async throws -> [WindowInfo] {
         let content: SCShareableContent
         do {
@@ -64,9 +75,17 @@ public struct CaptureSourceProvider: Sendable {
             Log.devices.error("availableWindows(): SCShareableContent fetch failed: \(error.localizedDescription, privacy: .public)")
             throw error
         }
+        // windowLayer/title alone isn't enough once off-Space windows are
+        // allowed through (see above) — resolved once, for every distinct
+        // owning app, rather than per window.
+        let candidatePIDs = Set(content.windows.compactMap { $0.owningApplication?.processID })
+        let regularPIDs = await Self.regularAppPIDs(among: candidatePIDs)
+
         let windows = content.windows
             .filter { window in
-                window.windowLayer == 0 && !(window.title ?? "").isEmpty
+                guard window.windowLayer == 0, !(window.title ?? "").isEmpty,
+                      let pid = window.owningApplication?.processID else { return false }
+                return regularPIDs.contains(pid)
             }
             .map { window in
                 WindowInfo(
