@@ -93,6 +93,29 @@ struct GeneralSettingsView: View {
                 }
 
                 GlassCard {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Label("Горячие клавиши", systemImage: "keyboard.fill")
+                            .font(.headline)
+
+                        Text("Работают всегда, даже когда Recorgi не в фокусе. Нужен хотя бы один модификатор (⌘⌥⌃⇧)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        VStack(spacing: 12) {
+                            hotkeyRow(title: "Старт/стоп записи", binding: $settings.startStopHotkey)
+                            hotkeyRow(title: "Микрофон", binding: $settings.toggleMicrophoneHotkey)
+                            hotkeyRow(title: "Системный звук", binding: $settings.toggleSystemAudioHotkey)
+                        }
+
+                        if hasDuplicateHotkeys {
+                            Label("Две из этих комбинаций совпадают — сработает только одна", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+
+                GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Тема", systemImage: "circle.lefthalf.filled")
                             .font(.headline)
@@ -187,6 +210,20 @@ struct GeneralSettingsView: View {
         .buttonStyle(.plain)
         .hoverCursor()
         .help(preset.label)
+    }
+
+    private func hotkeyRow(title: String, binding: Binding<HotkeyBinding?>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            HotkeyRecorderField(binding: binding)
+        }
+    }
+
+    private var hasDuplicateHotkeys: Bool {
+        let bindings = [settings.startStopHotkey, settings.toggleMicrophoneHotkey, settings.toggleSystemAudioHotkey]
+            .compactMap { $0 }
+        return Set(bindings.map { "\($0.keyCode)-\($0.modifiers.rawValue)" }).count != bindings.count
     }
 
     private var themeColor: Color {

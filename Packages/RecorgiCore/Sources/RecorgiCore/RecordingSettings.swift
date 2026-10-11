@@ -49,11 +49,31 @@ public final class RecordingSettings: ObservableObject {
         didSet { Self.persist(recordingQuality) }
     }
 
+    /// nil means unset — no global hotkey registered for that action. No
+    /// default binding is pre-assigned, since guessing a key combo could
+    /// collide with something the user already relies on elsewhere; they
+    /// opt in explicitly in General settings. GlobalHotkeyManager
+    /// (RecorgiCapture) is what actually registers these with the system.
+    @Published public var startStopHotkey: HotkeyBinding? {
+        didSet { Self.persist(startStopHotkey, key: Self.startStopHotkeyDefaultsKey) }
+    }
+
+    @Published public var toggleMicrophoneHotkey: HotkeyBinding? {
+        didSet { Self.persist(toggleMicrophoneHotkey, key: Self.toggleMicrophoneHotkeyDefaultsKey) }
+    }
+
+    @Published public var toggleSystemAudioHotkey: HotkeyBinding? {
+        didSet { Self.persist(toggleSystemAudioHotkey, key: Self.toggleSystemAudioHotkeyDefaultsKey) }
+    }
+
     private static let accentColorDefaultsKey = "recorgi.accentColor"
     private static let appearanceModeDefaultsKey = "recorgi.appearanceMode"
     private static let videoCodecDefaultsKey = "recorgi.videoCodec"
     private static let videoContainerDefaultsKey = "recorgi.videoContainer"
     private static let recordingQualityDefaultsKey = "recorgi.recordingQuality"
+    private static let startStopHotkeyDefaultsKey = "recorgi.startStopHotkey"
+    private static let toggleMicrophoneHotkeyDefaultsKey = "recorgi.toggleMicrophoneHotkey"
+    private static let toggleSystemAudioHotkeyDefaultsKey = "recorgi.toggleSystemAudioHotkey"
 
     public init() {
         let moviesDirectory = FileManager.default
@@ -66,6 +86,9 @@ public final class RecordingSettings: ObservableObject {
         self.videoCodec = Self.loadPersistedVideoCodec()
         self.videoContainer = Self.loadPersistedVideoContainer()
         self.recordingQuality = Self.loadPersistedRecordingQuality()
+        self.startStopHotkey = Self.loadPersistedHotkey(key: Self.startStopHotkeyDefaultsKey)
+        self.toggleMicrophoneHotkey = Self.loadPersistedHotkey(key: Self.toggleMicrophoneHotkeyDefaultsKey)
+        self.toggleSystemAudioHotkey = Self.loadPersistedHotkey(key: Self.toggleSystemAudioHotkeyDefaultsKey)
     }
 
     private static func loadPersistedAccentColor() -> AccentColorChoice? {
@@ -116,5 +139,18 @@ public final class RecordingSettings: ObservableObject {
 
     private static func persist(_ quality: RecordingQuality) {
         UserDefaults.standard.set(quality.rawValue, forKey: recordingQualityDefaultsKey)
+    }
+
+    private static func loadPersistedHotkey(key: String) -> HotkeyBinding? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(HotkeyBinding.self, from: data)
+    }
+
+    private static func persist(_ binding: HotkeyBinding?, key: String) {
+        guard let binding, let data = try? JSONEncoder().encode(binding) else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        UserDefaults.standard.set(data, forKey: key)
     }
 }
