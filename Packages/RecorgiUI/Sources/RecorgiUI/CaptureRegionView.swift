@@ -125,6 +125,7 @@ struct CaptureRegionView: View {
             // one for the actual recording, which never calls this and
             // stays click-through.
             areaHighlighter.setInteractive(true)
+            areaHighlighter.setAccentColor(themeNSColor)
             areaHighlighter.onRectChange = { newRect in
                 if case .area(let display, _) = settings.captureRegion {
                     settings.captureRegion = .area(display, newRect)
@@ -137,6 +138,9 @@ struct CaptureRegionView: View {
         }
         .onChange(of: mode) {
             syncHighlighter()
+        }
+        .onChange(of: settings.accentColor) {
+            areaHighlighter.setAccentColor(themeNSColor)
         }
         .onDisappear {
             areaHighlighter.hide()
@@ -248,6 +252,7 @@ struct CaptureRegionView: View {
             .buttonStyle(.glassProminent)
             .buttonBorderShape(.capsule)
             .disabled(isSelectingArea || displays.isEmpty)
+            .hoverCursor()
         }
     }
 
@@ -266,8 +271,8 @@ struct CaptureRegionView: View {
                     let scaleX = geo.size.width / CGFloat(display.width)
                     let scaleY = geo.size.height / CGFloat(display.height)
                     Rectangle()
-                        .fill(Color.accentColor.opacity(0.18))
-                        .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 2))
+                        .fill(themeColor.opacity(0.18))
+                        .overlay(Rectangle().stroke(themeColor, lineWidth: 2))
                         .frame(width: rect.width * scaleX, height: rect.height * scaleY)
                         .offset(x: rect.minX * scaleX, y: rect.minY * scaleY)
                 }
@@ -334,7 +339,7 @@ struct CaptureRegionView: View {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Color.accentColor)
+                            .foregroundStyle(.white, themeColor)
                             .font(.title3)
                             .padding(6)
                     }
@@ -362,11 +367,20 @@ struct CaptureRegionView: View {
             .frame(width: cardWidth, height: sourceCardHeight, alignment: .topLeading)
         }
         .buttonBorderShape(.roundedRectangle)
+        .hoverCursor()
     }
 
     private var isAreaSelected: Bool {
         if case .area = settings.captureRegion { return true }
         return false
+    }
+
+    private var themeColor: Color {
+        settings.accentColor?.color ?? Color.accentColor
+    }
+
+    private var themeNSColor: NSColor {
+        settings.accentColor?.nsColor ?? .controlAccentColor
     }
 
     /// On a single-monitor setup, .primaryDisplay and .display(thatDisplay)

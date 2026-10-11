@@ -121,6 +121,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         // Show the highlight border (if applicable) before fetching
         // shareable content, so our own window already exists and can be
         // matched + excluded from the capture filter below.
+        areaHighlighter.setAccentColor(settings.accentColor?.nsColor ?? .controlAccentColor)
         if case .area(let info, let rect) = settings.captureRegion {
             areaHighlighter.show(on: info.displayID, rect: rect)
         } else {

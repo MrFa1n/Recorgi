@@ -24,6 +24,7 @@ struct GlassToggleButton: View {
             }
         }
         .buttonBorderShape(.capsule)
+        .hoverCursor()
     }
 
     private var toggle: some View {

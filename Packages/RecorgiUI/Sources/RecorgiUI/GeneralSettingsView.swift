@@ -27,6 +27,34 @@ struct GeneralSettingsView: View {
                             }
                             .buttonStyle(.glass)
                             .buttonBorderShape(.capsule)
+                            .hoverCursor()
+                        }
+                    }
+                }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Label("Цвет акцента", systemImage: "paintpalette.fill")
+                            .font(.headline)
+
+                        Text("Применяется ко всем кнопкам и к рамке области захвата")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 14) {
+                            systemSwatch
+                            ForEach(AccentColorPreset.allCases, id: \.self) { preset in
+                                presetSwatch(preset)
+                            }
+                        }
+
+                        Divider()
+
+                        HStack {
+                            Text("Свой цвет")
+                            Spacer()
+                            ColorPicker("Свой цвет", selection: customColorBinding, supportsOpacity: false)
+                                .labelsHidden()
                         }
                     }
                 }
@@ -34,6 +62,57 @@ struct GeneralSettingsView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Follows System Settings > Appearance — the original, still-default
+    /// behavior. The rainbow fill mirrors how System Settings marks its own
+    /// "Multicolor" option, repurposed here to mean "dynamic/system" rather
+    /// than literally multicolored UI.
+    private var systemSwatch: some View {
+        Button {
+            settings.accentColor = nil
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(AngularGradient(colors: [.blue, .purple, .pink, .red, .orange, .yellow, .green, .blue], center: .center))
+                if settings.accentColor == nil {
+                    Circle()
+                        .strokeBorder(Color.primary, lineWidth: 2)
+                        .padding(-3)
+                }
+            }
+            .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .hoverCursor()
+        .help("Следовать системному акцентному цвету")
+    }
+
+    private func presetSwatch(_ preset: AccentColorPreset) -> some View {
+        let isSelected = settings.accentColor == preset.choice
+        return Button {
+            settings.accentColor = preset.choice
+        } label: {
+            ZStack {
+                Circle().fill(preset.choice.color)
+                if isSelected {
+                    Circle()
+                        .strokeBorder(Color.primary, lineWidth: 2)
+                        .padding(-3)
+                }
+            }
+            .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .hoverCursor()
+        .help(preset.label)
+    }
+
+    private var customColorBinding: Binding<Color> {
+        Binding(
+            get: { settings.accentColor?.color ?? Color.accentColor },
+            set: { settings.accentColor = AccentColorChoice(color: $0) }
+        )
     }
 
     private func chooseSaveDirectory() {

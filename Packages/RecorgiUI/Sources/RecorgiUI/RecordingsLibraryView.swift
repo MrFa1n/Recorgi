@@ -130,6 +130,7 @@ struct RecordingsLibraryView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .hoverCursor()
                 }
             }
             .padding(.horizontal, 12)
@@ -150,6 +151,7 @@ struct RecordingsLibraryView: View {
             }
             .buttonStyle(.glass)
             .buttonBorderShape(.capsule)
+            .hoverCursor()
 
             GlassToggleButton("По дате", systemImage: "calendar.day.timeline.left", isOn: $groupByDate)
 
@@ -163,6 +165,7 @@ struct RecordingsLibraryView: View {
             }
             .buttonStyle(.glass)
             .buttonBorderShape(.capsule)
+            .hoverCursor()
             .help("Обновить список записей")
         }
     }
@@ -202,6 +205,7 @@ struct RecordingsLibraryView: View {
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.capsule)
+                .hoverCursor()
                 .help("Переименовать")
 
                 Button {
@@ -212,6 +216,7 @@ struct RecordingsLibraryView: View {
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.capsule)
+                .hoverCursor()
                 .help("Показать в Finder")
 
                 Button {
@@ -222,6 +227,7 @@ struct RecordingsLibraryView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.capsule)
+                .hoverCursor()
                 .help("Открыть во встроенном плеере")
             }
         }

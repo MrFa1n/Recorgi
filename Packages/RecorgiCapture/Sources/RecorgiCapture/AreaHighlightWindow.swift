@@ -83,11 +83,19 @@ private final class HotspotWindow: NSWindow {
     func reposition(to frame: NSRect) {
         setFrame(frame, display: true)
     }
+
+    var accentColor: NSColor {
+        get { (contentView as? HotspotView)?.accentColor ?? .controlAccentColor }
+        set { (contentView as? HotspotView)?.accentColor = newValue }
+    }
 }
 
 private final class HotspotView: NSView {
     private let cursor: NSCursor
     private let drawsHandle: Bool
+    var accentColor: NSColor = .controlAccentColor {
+        didSet { needsDisplay = true }
+    }
     var onMouseDown: (() -> Void)?
     var onMouseDragged: (() -> Void)?
     var onMouseUp: (() -> Void)?
@@ -105,7 +113,7 @@ private final class HotspotView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard drawsHandle else { return }
         let oval = NSBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2))
-        NSColor.controlAccentColor.setFill()
+        accentColor.setFill()
         oval.fill()
         NSColor.white.setStroke()
         oval.lineWidth = 1.5
@@ -151,16 +159,24 @@ private final class AreaBorderWindow: NSWindow {
         borderView.strokeRect = NSRect(x: padding, y: padding, width: rect.width, height: rect.height)
         setFrame(rect.insetBy(dx: -padding, dy: -padding), display: true)
     }
+
+    var accentColor: NSColor {
+        get { borderView.accentColor }
+        set { borderView.accentColor = newValue }
+    }
 }
 
 private final class AreaBorderView: NSView {
     var strokeRect: NSRect = .zero {
         didSet { needsDisplay = true }
     }
+    var accentColor: NSColor = .controlAccentColor {
+        didSet { needsDisplay = true }
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard strokeRect.width > 0, strokeRect.height > 0 else { return }
-        NSColor.controlAccentColor.setStroke()
+        accentColor.setStroke()
         let path = NSBezierPath(rect: strokeRect.insetBy(dx: 1.5, dy: 1.5))
         path.lineWidth = 3
         path.stroke()
@@ -180,6 +196,7 @@ public final class AreaHighlighter {
     private var screen: NSScreen?
     private var selectionGlobal: CGRect = .zero
     private var displayBoundsGlobal: CGRect = .zero
+    private var accentColor: NSColor = .controlAccentColor
 
     private let handleSize: CGFloat = 14
     private let edgeThickness: CGFloat = 12
@@ -220,6 +237,17 @@ public final class AreaHighlighter {
         updateHotspotVisibility()
     }
 
+    /// Defaults to .controlAccentColor (the system accent color, same as
+    /// before this existed) — pass a specific color to theme the border and
+    /// handles, or .controlAccentColor again to go back to following the
+    /// system.
+    public func setAccentColor(_ color: NSColor) {
+        accentColor = color
+        borderWindow.accentColor = color
+        for window in handleWindows.values { window.accentColor = color }
+        for window in edgeWindows.values { window.accentColor = color }
+    }
+
     public func show(on displayID: UInt32, rect: CGRect) {
         guard let matchedScreen = NSScreen.screens.first(where: { Self.displayID(for: $0) == displayID }) else {
             hide()
@@ -257,6 +285,7 @@ public final class AreaHighlighter {
         if handleWindows.isEmpty {
             for handle in Handle.allCases {
                 let window = HotspotWindow(cursor: handle.cursor, drawsHandle: true)
+                window.accentColor = accentColor
                 window.onMouseDown = { [weak self] mouse in self?.beginDrag(.resize(handle), at: mouse) }
                 window.onMouseDragged = { [weak self] mouse in self?.continueDrag(at: mouse) }
                 window.onMouseUp = { [weak self] in self?.drag = nil }
@@ -266,6 +295,7 @@ public final class AreaHighlighter {
         if edgeWindows.isEmpty {
             for edge in Edge.allCases {
                 let window = HotspotWindow(cursor: .openHand, drawsHandle: false)
+                window.accentColor = accentColor
                 window.onMouseDown = { [weak self] mouse in self?.beginDrag(.move, at: mouse) }
                 window.onMouseDragged = { [weak self] mouse in self?.continueDrag(at: mouse) }
                 window.onMouseUp = { [weak self] in self?.drag = nil }

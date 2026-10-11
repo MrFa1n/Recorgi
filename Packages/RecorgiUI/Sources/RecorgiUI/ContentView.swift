@@ -25,6 +25,10 @@ public struct ContentView: View {
                     TransportBar(engine: engine, settings: settings)
                 }
         }
+        // nil means "don't override" — every .glass/.glassProminent button
+        // and every other tint-aware control then simply keeps following
+        // the system accent color, same as before this setting existed.
+        .tint(settings.accentColor?.color)
         .task {
             await permissions.requestAll()
         }

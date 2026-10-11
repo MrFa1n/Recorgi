@@ -107,6 +107,7 @@ struct RecordPageView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
+                .hoverCursor()
             }
         }
     }

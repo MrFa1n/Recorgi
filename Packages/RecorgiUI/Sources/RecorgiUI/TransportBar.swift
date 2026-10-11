@@ -72,8 +72,13 @@ struct TransportBar: View {
         }
         .buttonStyle(.glassProminent)
         .buttonBorderShape(.circle)
-        .tint(isRecording ? .red : .accentColor)
+        // nil (not .accentColor, a fixed reference to the asset-catalog
+        // color) lets it inherit whatever .tint() ContentView set from the
+        // user's chosen theme — red stays an explicit override while
+        // actually recording, regardless of theme.
+        .tint(isRecording ? .red : nil)
         .disabled(isBusy)
+        .hoverCursor()
     }
 }
 

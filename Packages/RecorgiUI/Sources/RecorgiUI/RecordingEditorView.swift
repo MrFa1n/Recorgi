@@ -45,6 +45,7 @@ struct RecordingEditorView: View {
                 Button("Готово") { dismiss() }
                     .buttonStyle(.glass)
                     .buttonBorderShape(.capsule)
+                    .hoverCursor()
             }
 
             PlayerLayerView(player: player)
@@ -88,6 +89,7 @@ struct RecordingEditorView: View {
             }
             .buttonStyle(.glassProminent)
             .buttonBorderShape(.circle)
+            .hoverCursor()
 
             Text(formatted(playhead))
                 .font(.caption.monospacedDigit())
@@ -138,6 +140,7 @@ struct RecordingEditorView: View {
         .buttonStyle(.glassProminent)
         .buttonBorderShape(.capsule)
         .disabled(isExporting || duration <= 0)
+        .hoverCursor()
     }
 
     private func loadAsset() async {
