@@ -52,29 +52,6 @@ struct GeneralSettingsView: View {
                 }
 
                 GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Прозрачность", systemImage: "square.stack.3d.down.forward.fill")
-                            .font(.headline)
-
-                        Text("Применяется к карточкам интерфейса; кнопки всегда следуют системной настройке")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        Picker("Прозрачность", selection: $settings.transparencyMode) {
-                            Label("Системная", systemImage: "circle.lefthalf.filled")
-                                .tag(TransparencyMode?.none)
-                            ForEach(TransparencyMode.allCases, id: \.self) { mode in
-                                Label(mode.label, systemImage: mode.systemImage)
-                                    .tag(TransparencyMode?.some(mode))
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .tint(themeColor)
-                    }
-                }
-
-                GlassCard {
                     VStack(alignment: .leading, spacing: 16) {
                         Label("Цвет акцента", systemImage: "paintpalette.fill")
                             .font(.headline)
