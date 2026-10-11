@@ -7,6 +7,8 @@
 | `AppIcon.icon/` | Иконка для Icon Composer (macOS 26, Liquid Glass): `icon.json` и пять плоских SVG-слоёв в `Assets/` |
 | `Assets.xcassets/AppIcon.appiconset/` | Запасная иконка для macOS 15 и старше: 10 PNG от 16 до 1024 px |
 | `Assets.xcassets/Wordmark.imageset/` | Логотип «Recorgi» в кривых, светлый и тёмный варианты |
+| `Assets.xcassets/MenuBar*.imageset/` | Значок для строки меню, 18 pt, вектор: `MenuBarIdle`, `MenuBarRecording`, `MenuBarPaused` |
+| `Brand/RecorgiMenuBar.swift` | Состояния записи и класс, который ставит значок в строку меню (справочно — у самого приложения своя интеграция в `Recorgi/MenuBarController.swift`, см. его комментарии) |
 | `Assets.xcassets/*.colorset/` | Семь фирменных цветов |
 | `Fonts/Unbounded-Bold.ttf` | Шрифт логотипа и его лицензия `OFL.txt` |
 | `Brand/RecorgiBrand.swift` | Цвета, шрифт и логотип для SwiftUI |
@@ -18,6 +20,20 @@
 2. **Ассеты.** Перетащите содержимое `Assets.xcassets` (папки `AppIcon.appiconset`, `Wordmark.imageset` и все `.colorset`) в каталог ассетов проекта. Если там уже есть пустой `AppIcon`, замените его.
 3. **Шрифт.** Добавьте `Fonts/Unbounded-Bold.ttf` в таргет (он должен попасть в Copy Bundle Resources). В `Info.plist` добавьте ключ `ATSApplicationFontsPath` со значением `.` — это «Application fonts resource path».
 4. **Код.** Добавьте `Brand/RecorgiBrand.swift` в таргет.
+
+## Значок в строке меню
+
+Три состояния, отличаются формой, а не только цветом:
+
+| Набор | Состояние | Что в кнопке записи | Режим |
+| --- | --- | --- | --- |
+| `MenuBarIdle` | Запись не идёт | Пусто | Шаблон, красит система |
+| `MenuBarRecording` | Идёт запись | Красная точка | Цветной, есть светлый и тёмный варианты |
+| `MenuBarPaused` | Пауза | Две полоски | Шаблон, красит система |
+
+`Brand/RecorgiMenuBar.swift` — справочная реализация из брендбука; у самого приложения своя, в `Recorgi/MenuBarController.swift` (его `enum RecordingState` конфликтует по имени с `RecorgiCore.RecordingState`, поэтому код не копировался один в один — только имена ассетов). Паузы в `ScreenRecordingEngine` сейчас нет, `MenuBarPaused` показывается во время переходных состояний (`.starting`/`.stopping`).
+
+Если вместо этого используете `MenuBarExtra` из SwiftUI, проверьте состояние записи: он может перекрасить картинку в один цвет, и красная точка пропадёт.
 
 ## Что нужно проверить руками
 

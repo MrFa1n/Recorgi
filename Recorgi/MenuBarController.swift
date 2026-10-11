@@ -40,17 +40,37 @@ final class MenuBarController: NSObject, ObservableObject {
         updateIcon()
     }
 
+    // Idle and paused are template images (baked into the asset catalog
+    // itself via template-rendering-intent) so the system colors them to
+    // match the menu bar automatically; recording is a real colored image
+    // (red dot, separate light/dark variants in the catalog), so template
+    // mode is explicitly off for it — matching the brand kit's own
+    // RecorgiMenuBar.swift reference implementation (Recorgi-Xcode/Brand),
+    // not copied verbatim here only because its RecordingState enum name
+    // collides with RecorgiCore's.
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
-        let isRecording: Bool
-        if case .recording = engine?.state { isRecording = true } else { isRecording = false }
-        let image = NSImage(
-            systemSymbolName: isRecording ? "record.circle.fill" : "record.circle",
-            accessibilityDescription: isRecording ? "Recorgi — идёт запись" : "Recorgi"
-        )
-        image?.isTemplate = true
+        let imageName: String
+        let isTemplate: Bool
+        let label: String
+        switch engine?.state {
+        case .recording:
+            imageName = "MenuBarRecording"
+            isTemplate = false
+            label = "Recorgi — идёт запись"
+        case .starting, .stopping:
+            imageName = "MenuBarPaused"
+            isTemplate = true
+            label = "Recorgi — переключение"
+        case .idle, nil:
+            imageName = "MenuBarIdle"
+            isTemplate = true
+            label = "Recorgi"
+        }
+        let image = NSImage(named: imageName)
+        image?.isTemplate = isTemplate
         button.image = image
-        button.contentTintColor = isRecording ? .systemRed : nil
+        button.setAccessibilityLabel(label)
     }
 
     private func rebuildMenu(_ menu: NSMenu) {
