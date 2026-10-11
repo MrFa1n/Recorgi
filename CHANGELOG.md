@@ -4,6 +4,30 @@ All notable changes to Recorgi are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match the
 `MARKETING_VERSION` baked into each build and the git tag it ships under.
 
+## [0.2.0] - 2026-10-12
+
+### Added
+
+- Select multiple recordings in the library — checkboxes, shift-click to
+  select a range, or a floating button that follows you down the list —
+  and delete them together. A single recording can still be deleted
+  straight from its own row without selecting anything. Either way,
+  deleted recordings move to the Trash, not gone for good.
+- Export the current session's logs from General settings, to help
+  track down a problem.
+
+### Fixed
+
+- Recordings made with the MPEG-4 (`.mp4`) container no longer silently
+  disappear from the Recordings library — only `.mov` was ever being
+  listed.
+- On a multi-monitor setup, the display picker no longer shows the
+  primary display twice (once as itself, once as a separate "Основной
+  дисплей" card).
+- The window picker now actually lists every open window, including
+  ones on a different virtual desktop/Space or a second display — and
+  no longer mixes in background system windows that aren't real apps.
+
 ## [0.1.0] - 2026-10-12
 
 First tagged build.
