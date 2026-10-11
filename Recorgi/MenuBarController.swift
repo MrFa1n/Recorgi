@@ -38,6 +38,7 @@ final class MenuBarController: NSObject, ObservableObject {
             .sink { [weak self] _ in self?.updateIcon() }
             .store(in: &cancellables)
         updateIcon()
+        Log.menuBar.notice("started")
     }
 
     // Idle and paused are template images (baked into the asset catalog
@@ -115,6 +116,7 @@ final class MenuBarController: NSObject, ObservableObject {
 
     @objc private func toggleRecording() {
         guard let settings, let engine else { return }
+        Log.menuBar.notice("toggleRecording tapped, state=\(String(describing: engine.state), privacy: .public)")
         Task {
             switch engine.state {
             case .idle:
@@ -145,6 +147,7 @@ final class MenuBarController: NSObject, ObservableObject {
     }
 
     @objc private func quit() {
+        Log.menuBar.notice("quit tapped")
         NSApp.terminate(nil)
     }
 }
