@@ -26,6 +26,7 @@ public struct ContentView: View {
                     TransportBar(engine: engine, settings: settings)
                 }
         }
+        .background(WindowTitleHider().frame(width: 0, height: 0))
         // Deliberately NOT a blanket .tint() here — Liquid Glass's plain
         // .glass button style turns out to pick up ambient .tint() too, not
         // just .glassProminent, so a global override recolored buttons that
