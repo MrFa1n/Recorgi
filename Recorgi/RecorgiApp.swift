@@ -21,12 +21,5 @@ struct RecorgiApp: App {
                 }
         }
         .defaultSize(width: 940, height: 600)
-        // Removing the title *item* (ContentView's .toolbar(removing:
-        // .title)) only blanks the text — the toolbar row still reserves
-        // the same height it always did, since the row's height comes from
-        // the toolbar style, not from whatever happens to be in it. This
-        // is what actually shrinks the row itself, closing the gap that
-        // left above every page.
-        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
     }
 }
