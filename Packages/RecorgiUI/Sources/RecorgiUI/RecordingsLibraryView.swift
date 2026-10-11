@@ -43,6 +43,10 @@ struct RecordingsLibraryView: View {
     @State private var renamingID: URL?
     @State private var renameDraft = ""
     @State private var renameError: String?
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<URL> = []
+    @State private var pendingDelete: [RecordingFile]?
+    @State private var deleteError: String?
     @Environment(\.accentTint) private var accentTint
     // @State, not `let` — same reason as CaptureRegionView's AreaHighlighter:
     // SwiftUI recreates this View struct on every re-render, and a plain
@@ -117,6 +121,29 @@ struct RecordingsLibraryView: View {
         } message: {
             Text(renameError ?? "")
         }
+        .alert("Ошибка", isPresented: Binding(
+            get: { deleteError != nil },
+            set: { if !$0 { deleteError = nil } }
+        )) {
+            Button("ОК", role: .cancel) { deleteError = nil }
+        } message: {
+            Text(deleteError ?? "")
+        }
+        .confirmationDialog(
+            deleteConfirmationTitle,
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(deleteConfirmationButtonLabel, role: .destructive) {
+                performDelete()
+            }
+            Button("Отмена", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("Файлы переместятся в Корзину — их можно будет восстановить оттуда.")
+        }
         .sheet(item: $editingRecording) { recording in
             RecordingEditorView(recording: recording, onExported: refresh)
         }
@@ -124,63 +151,116 @@ struct RecordingsLibraryView: View {
 
     private var controls: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
+            if isSelecting {
+                Text(selectedIDs.isEmpty ? "Выбери записи для удаления" : "Выбрано: \(selectedIDs.count)")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                TextField("Поиск по названию", text: $searchText)
-                    .textFieldStyle(.plain)
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .hoverCursor()
+
+                Spacer()
+
+                Button("Удалить", systemImage: "trash") {
+                    pendingDelete = recordings.filter { selectedIDs.contains($0.id) }
                 }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .glassEffect(in: Capsule())
-            .frame(maxWidth: 320)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .tint(.red)
+                .disabled(selectedIDs.isEmpty)
+                .hoverCursor()
 
-            Menu {
-                ForEach(RecordingSortOrder.allCases) { order in
-                    Button {
-                        sortOrder = order
-                    } label: {
-                        Label(order.label, systemImage: order.systemImage)
+                Button("Готово") {
+                    endSelecting()
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .hoverCursor()
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Поиск по названию", text: $searchText)
+                        .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .hoverCursor()
                     }
                 }
-            } label: {
-                Label(sortOrder.label, systemImage: sortOrder.systemImage)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .glassEffect(in: Capsule())
+                .frame(maxWidth: 320)
+
+                Menu {
+                    ForEach(RecordingSortOrder.allCases) { order in
+                        Button {
+                            sortOrder = order
+                        } label: {
+                            Label(order.label, systemImage: order.systemImage)
+                        }
+                    }
+                } label: {
+                    Label(sortOrder.label, systemImage: sortOrder.systemImage)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .hoverCursor()
+
+                GlassToggleButton("По дате", systemImage: "calendar.day.timeline.left", isOn: $groupByDate)
+
+                Spacer()
+
+                Button("Выбрать") {
+                    isSelecting = true
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .hoverCursor()
+                .disabled(recordings.isEmpty)
+
+                Button {
+                    refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .hoverCursor()
+                .help("Обновить список записей")
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
-            .hoverCursor()
-
-            GlassToggleButton("По дате", systemImage: "calendar.day.timeline.left", isOn: $groupByDate)
-
-            Spacer()
-
-            Button {
-                refresh()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
-            .hoverCursor()
-            .help("Обновить список записей")
         }
     }
 
     @ViewBuilder
     private func row(for recording: RecordingFile) -> some View {
+        let isSelected = selectedIDs.contains(recording.id)
         GlassCard {
             HStack {
+                if isSelecting {
+                    Button {
+                        toggleSelection(recording)
+                    } label: {
+                        Group {
+                            if isSelected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.tint)
+                            } else {
+                                Image(systemName: "circle")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.title3)
+                    }
+                    .buttonStyle(.plain)
+                    .themedTint()
+                    .hoverCursor()
+                }
+
                 RecordingThumbnailView(url: recording.url)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -203,39 +283,58 @@ struct RecordingsLibraryView: View {
 
                 Spacer()
 
-                Button {
-                    beginRename(recording)
-                } label: {
-                    Image(systemName: "pencil")
-                        .frame(width: 20, height: 20)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.capsule)
-                .hoverCursor()
-                .help("Переименовать")
+                if !isSelecting {
+                    Button {
+                        beginRename(recording)
+                    } label: {
+                        Image(systemName: "pencil")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .hoverCursor()
+                    .help("Переименовать")
 
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([recording.url])
-                } label: {
-                    Image(systemName: "folder")
-                        .frame(width: 20, height: 20)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.capsule)
-                .hoverCursor()
-                .help("Показать в Finder")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([recording.url])
+                    } label: {
+                        Image(systemName: "folder")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .hoverCursor()
+                    .help("Показать в Finder")
 
-                Button {
-                    editingRecording = recording
-                } label: {
-                    Image(systemName: "play.fill")
-                        .frame(width: 20, height: 20)
+                    Button {
+                        pendingDelete = [recording]
+                    } label: {
+                        Image(systemName: "trash")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .hoverCursor()
+                    .help("Удалить")
+
+                    Button {
+                        editingRecording = recording
+                    } label: {
+                        Image(systemName: "play.fill")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.capsule)
+                    .themedTint()
+                    .hoverCursor()
+                    .help("Открыть во встроенном плеере")
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.capsule)
-                .themedTint()
-                .hoverCursor()
-                .help("Открыть во встроенном плеере")
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isSelecting {
+                toggleSelection(recording)
             }
         }
     }
@@ -324,6 +423,54 @@ struct RecordingsLibraryView: View {
         } catch {
             renameError = error.localizedDescription
         }
+    }
+
+    // MARK: - Selection & delete
+
+    private func toggleSelection(_ recording: RecordingFile) {
+        if selectedIDs.contains(recording.id) {
+            selectedIDs.remove(recording.id)
+        } else {
+            selectedIDs.insert(recording.id)
+        }
+    }
+
+    private func endSelecting() {
+        isSelecting = false
+        selectedIDs.removeAll()
+    }
+
+    private var deleteConfirmationTitle: String {
+        guard let pendingDelete else { return "" }
+        if pendingDelete.count == 1 {
+            return "Удалить «\(pendingDelete[0].name)»?"
+        }
+        return "Удалить \(pendingDelete.count) записей?"
+    }
+
+    private var deleteConfirmationButtonLabel: String {
+        guard let pendingDelete, pendingDelete.count > 1 else { return "Удалить" }
+        return "Удалить (\(pendingDelete.count))"
+    }
+
+    private func performDelete() {
+        guard let targets = pendingDelete else { return }
+        pendingDelete = nil
+        for recording in targets {
+            do {
+                try library.delete(recording)
+            } catch {
+                // Keep going on a multi-delete even if one file fails (e.g.
+                // it was already moved/deleted outside the app) — report
+                // the last failure rather than stopping after the first.
+                deleteError = error.localizedDescription
+            }
+        }
+        selectedIDs.subtract(targets.map(\.id))
+        if isSelecting && selectedIDs.isEmpty {
+            endSelecting()
+        }
+        refresh()
     }
 
     // Shared, not instantiated per row per render — RelativeDateTimeFormatter

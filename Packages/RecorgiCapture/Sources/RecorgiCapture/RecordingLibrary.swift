@@ -24,6 +24,16 @@ public enum RecordingRenameError: LocalizedError {
     }
 }
 
+public enum RecordingDeleteError: LocalizedError {
+    case deleteFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .deleteFailed(let reason): return "Не удалось удалить: \(reason)"
+        }
+    }
+}
+
 /// Lists the recording files Recorgi has written to a save directory, for
 /// the "Recordings" library page.
 public struct RecordingLibrary: Sendable {
@@ -100,5 +110,18 @@ public struct RecordingLibrary: Sendable {
             createdAt: values?.contentModificationDate ?? recording.createdAt,
             sizeBytes: Int64(values?.fileSize ?? Int(recording.sizeBytes))
         )
+    }
+
+    /// Moves a recording to the Trash rather than permanently deleting it —
+    /// reversible if this turns out to be a mistake, same safety margin
+    /// Finder's own Delete gives you.
+    public func delete(_ recording: RecordingFile) throws {
+        do {
+            try FileManager.default.trashItem(at: recording.url, resultingItemURL: nil)
+            Log.library.notice("delete(): moved to Trash")
+        } catch {
+            Log.library.error("delete(): trashItem failed: \(error.localizedDescription, privacy: .public)")
+            throw RecordingDeleteError.deleteFailed(error.localizedDescription)
+        }
     }
 }
