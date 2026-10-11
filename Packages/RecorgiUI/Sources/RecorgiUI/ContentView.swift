@@ -27,6 +27,14 @@ public struct ContentView: View {
                 }
         }
         .background(WindowTitleHider().frame(width: 0, height: 0))
+        // The "Recorgi" text at the top wasn't the window's own title bar
+        // text at all — NavigationSplitView adds a separate SwiftUI-drawn
+        // toolbar item for the title (ToolbarDefaultItemKind.title), which
+        // NSWindow.titleVisibility above has no effect on. Removing that
+        // toolbar item outright, rather than emptying its text, is also
+        // what lets everything below shift up into the freed space instead
+        // of leaving a blank gap where it used to sit.
+        .toolbar(removing: .title)
         // Deliberately NOT a blanket .tint() here — Liquid Glass's plain
         // .glass button style turns out to pick up ambient .tint() too, not
         // just .glassProminent, so a global override recolored buttons that
