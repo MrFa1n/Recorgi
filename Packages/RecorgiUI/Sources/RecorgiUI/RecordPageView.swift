@@ -54,6 +54,9 @@ struct RecordPageView: View {
                 }
             }
             .padding(24)
+            // Extra bottom clearance for the floating TransportBar — see
+            // GeneralSettingsView's own comment on this same line.
+            .padding(.bottom, 76)
             // maxHeight too — see GeneralSettingsView's own comment on
             // this same line: ScrollView centers short content vertically
             // by default on macOS, which could let a card drift down

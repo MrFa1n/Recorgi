@@ -21,8 +21,16 @@ public struct ContentView: View {
             SidebarView(selection: $selection)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
+            // .overlay, not .safeAreaInset: safeAreaInset reserves a
+            // hit-testable strip across the *entire width* of the detail
+            // pane for its content, not just wherever that content
+            // actually draws something — once a page scrolled far enough
+            // that other content lined up with that strip, clicks there
+            // died even nowhere near the visibly-drawn buttons. .overlay
+            // sizes and hit-tests to its content's own natural size
+            // (bottom-center here), nothing wider.
             detail
-                .safeAreaInset(edge: .bottom) {
+                .overlay(alignment: .bottom) {
                     TransportBar(engine: engine, settings: settings)
                 }
         }

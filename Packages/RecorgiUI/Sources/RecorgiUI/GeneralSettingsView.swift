@@ -175,6 +175,11 @@ struct GeneralSettingsView: View {
                 }
             }
             .padding(24)
+            // Extra bottom clearance for the floating TransportBar — it's
+            // an .overlay now (see ContentView), which, unlike
+            // .safeAreaInset, doesn't automatically reserve scroll space
+            // for itself.
+            .padding(.bottom, 76)
             // maxHeight too, not just maxWidth — ScrollView centers
             // content vertically by default on macOS when it's shorter
             // than the viewport, which on this page (short enough to not
