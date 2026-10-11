@@ -38,6 +38,12 @@ public struct ContentView: View {
         // (including native AppKit chrome like the title bar) to that
         // appearance regardless of System Settings.
         .preferredColorScheme(settings.appearanceMode.map { $0 == .light ? .light : .dark })
+        // nil means GlassCard keeps following the real, live system Reduce
+        // Transparency setting — a non-nil choice overrides it for this
+        // app. See TransparencyOverride.swift for why this needs its own
+        // environment key instead of overriding SwiftUI's own
+        // accessibilityReduceTransparency (it's get-only here).
+        .environment(\.reduceTransparencyOverride, settings.transparencyMode.map { $0 == .reduced })
         .task {
             await permissions.requestAll()
         }
