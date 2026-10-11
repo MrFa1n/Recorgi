@@ -18,7 +18,13 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationTitle("Recorgi")
+        // Empty, not removed: an unset navigationTitle falls back to the
+        // app/bundle name anyway, which is still "Recorgi" — this is what
+        // actually clears the window-title-bar text on every page (it's
+        // the sidebar's title that NavigationSplitView shows up top,
+        // regardless of which page is selected). The styled wordmark-font
+        // "Recorgi" headline on the record page is the real title now.
+        .navigationTitle("")
     }
 
     private func row(_ section: SidebarSection) -> some View {
