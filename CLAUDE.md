@@ -66,7 +66,6 @@ SwiftUI gotcha that bit this codebase once already: a helper that owns a persist
 - **`config.minimumFrameInterval` caps capture at 30fps, and `AVVideoCompressionPropertiesKey` sets an explicit bitrate** — left to AVFoundation's automatic defaults, a high-refresh-rate display can hand the real-time H.264 encoder more data than it can sustain.
 - **`writer.status` is checked on every `stop()`, not only when it's still `.writing`** — the writer can fail asynchronously *during* capture (an `append()` call returning `false`), and only checking the `.writing` branch silently skips surfacing that failure entirely.
 - `AreaSelector`'s coordinate conversion matters: AppKit view coordinates are bottom-left origin, `SCStreamConfiguration.sourceRect` is top-left origin — the Y-flip in `AreaSelector`/`AreaHighlighter` is not optional boilerplate.
-- `DebugLog.swift` is **temporary diagnostic scaffolding** from this investigation (writes to `recorgi-debug.log` next to the recordings). Remove it once confidence in the pipeline is solid — it's not meant to be permanent infrastructure.
 
 ## License
 

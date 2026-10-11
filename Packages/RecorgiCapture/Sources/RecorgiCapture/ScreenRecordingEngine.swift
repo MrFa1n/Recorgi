@@ -114,9 +114,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         lastMicrophonePTS = nil
 
         try FileManager.default.createDirectory(at: settings.saveDirectory, withIntermediateDirectories: true)
-        DebugLog.fileURL = settings.saveDirectory.appendingPathComponent("recorgi-debug.log")
         let fileURL = settings.saveDirectory.appendingPathComponent(Self.timestampedFilename(extension: settings.videoContainer.fileExtension))
-        DebugLog.write("=== start: region=\(settings.captureRegion) sysAudio=\(settings.isSystemAudioEnabled) scope=\(settings.systemAudioScope) mic=\(settings.isMicrophoneEnabled) file=\(fileURL.lastPathComponent)")
 
         // Show the highlight border (if applicable) before fetching
         // shareable content, so our own window already exists and can be
@@ -274,7 +272,6 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         self.stream = stream
         self.recordingOutput = recordingOutput
-        DebugLog.write("SCRecordingOutput: stream.startCapture() ok, pixelSize=\(config.width)x\(config.height)")
 
         if settings.isMicrophoneEnabled, settings.isMonitoringEnabled {
             try setUpMicrophoneMonitoring(
@@ -348,17 +345,14 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         self.assetWriter = writer
 
         guard writer.startWriting() else {
-            DebugLog.write("legacy: writer.startWriting() FAILED: \(Self.errorDetails(writer.error))")
             throw RecordingError.writerSetupFailed(writer.error?.localizedDescription ?? "unknown error")
         }
         writer.startSession(atSourceTime: CMClockGetTime(CMClockGetHostTimeClock()))
-        DebugLog.write("legacy: writer.startWriting() ok, pixelSize=\(pixelWidth)x\(pixelHeight), status=\(writer.status.rawValue)")
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .main)
         try await stream.startCapture()
         self.stream = stream
-        DebugLog.write("legacy: stream.startCapture() ok")
 
         guard case .application(let app) = settings.systemAudioScope,
               let match = content.applications.first(where: { $0.processID == app.processID }) else {
@@ -380,13 +374,11 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         self.appAudioStream = appStream
 
         microphoneSession?.startRunning()
-        DebugLog.write("legacy: mic session started (enabled=\(settings.isMicrophoneEnabled)); state -> recording")
         state = .recording(startedAt: Date())
     }
 
     public func stop() async {
         guard case .recording = state else {
-            DebugLog.write("stop() called but state is \(state) — ignored")
             return
         }
         state = .stopping
@@ -396,13 +388,11 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         microphoneRelay = nil
 
         if let recordingOutput, let stream {
-            DebugLog.write("stop(): removing SCRecordingOutput")
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 recordingStopContinuation = continuation
                 do {
                     try stream.removeRecordingOutput(recordingOutput)
                 } catch {
-                    DebugLog.write("removeRecordingOutput threw: \(Self.errorDetails(error))")
                     lastError = error.localizedDescription
                     recordingStopContinuation = nil
                     continuation.resume()
@@ -429,7 +419,6 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             switch writer.status {
             case .writing:
                 await writer.finishWriting()
-                DebugLog.write("finishWriting() returned, status=\(writer.status.rawValue) error=\(Self.errorDetails(writer.error))")
                 if writer.status == .failed {
                     lastError = writer.error?.localizedDescription ?? "Recording failed to finalize."
                 }
@@ -438,10 +427,9 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 // hitting a real encoder/format error), not just when
                 // finishWriting() is called — only checking the .writing
                 // case here would silently skip surfacing that failure.
-                DebugLog.write("legacy: writer already .failed at stop() time, error=\(Self.errorDetails(writer.error))")
                 lastError = writer.error?.localizedDescription ?? "Recording failed while writing."
             case .cancelled, .completed, .unknown:
-                DebugLog.write("legacy: writer status at stop() time: \(writer.status.rawValue) (no action)")
+                break
             @unknown default:
                 break
             }
@@ -578,8 +566,6 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 videoFrameCount += 1
                 if ok {
                     lastVideoPTS = pts
-                } else {
-                    DebugLog.write("legacy: videoInput.append() returned FALSE at frame \(videoFrameCount), writer.status=\(assetWriter?.status.rawValue ?? -1) error=\(Self.errorDetails(assetWriter?.error))")
                 }
             } else {
                 droppedNotReadyCount += 1
@@ -607,7 +593,6 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         guard case .recording = state, !isHandlingWriterFailure else { return }
         isHandlingWriterFailure = true
         let message = assetWriter?.error?.localizedDescription ?? "Recording failed while writing."
-        DebugLog.write("legacy: handleWriterFailure() triggered from append(): \(Self.errorDetails(assetWriter?.error))")
         lastError = message
         Task {
             await stop()
@@ -630,15 +615,6 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             }
         }
         return 2
-    }
-
-    /// `localizedDescription` alone is often a useless generic string
-    /// ("The operation could not be completed") — domain/code/userInfo is
-    /// what actually identifies the underlying failure.
-    private static func errorDetails(_ error: Error?) -> String {
-        guard let error else { return "nil" }
-        let nsError = error as NSError
-        return "domain=\(nsError.domain) code=\(nsError.code) desc=\(nsError.localizedDescription) userInfo=\(nsError.userInfo)"
     }
 
     private static func timestampedFilename(extension fileExtension: String) -> String {
@@ -673,7 +649,6 @@ extension ScreenRecordingEngine: SCStreamOutput, SCStreamDelegate {
 
     nonisolated public func stream(_ stream: SCStream, didStopWithError error: Error) {
         MainActor.assumeIsolated {
-            DebugLog.write("SCStream didStopWithError: \(error)")
             self.lastError = error.localizedDescription
         }
         Task { await self.stop() }
@@ -684,15 +659,10 @@ extension ScreenRecordingEngine: SCRecordingOutputDelegate {
     // SCRecordingOutput doesn't document which queue these land on (unlike
     // SCStreamOutput's explicit sampleHandlerQueue), so hop via Task rather
     // than assuming main-actor isolation here.
-    nonisolated public func recordingOutputDidStartRecording(_ recordingOutput: SCRecordingOutput) {
-        Task { @MainActor in
-            DebugLog.write("SCRecordingOutput: recording started")
-        }
-    }
+    nonisolated public func recordingOutputDidStartRecording(_ recordingOutput: SCRecordingOutput) {}
 
     nonisolated public func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
         Task { @MainActor in
-            DebugLog.write("SCRecordingOutput: didFailWithError \(Self.errorDetails(error))")
             self.lastError = error.localizedDescription
             self.recordingStopContinuation?.resume()
             self.recordingStopContinuation = nil
@@ -701,7 +671,6 @@ extension ScreenRecordingEngine: SCRecordingOutputDelegate {
 
     nonisolated public func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
         Task { @MainActor in
-            DebugLog.write("SCRecordingOutput: finished recording ok")
             self.recordingStopContinuation?.resume()
             self.recordingStopContinuation = nil
         }
