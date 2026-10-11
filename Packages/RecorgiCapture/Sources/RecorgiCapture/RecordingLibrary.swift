@@ -24,9 +24,17 @@ public enum RecordingRenameError: LocalizedError {
     }
 }
 
-/// Lists the .mov files Recorgi has written to a save directory, for the
-/// "Recordings" library page.
+/// Lists the recording files Recorgi has written to a save directory, for
+/// the "Recordings" library page.
 public struct RecordingLibrary: Sendable {
+    // Derived from VideoContainer.allCases, not hardcoded to "mov" — a
+    // recording's extension depends on the container the user had selected
+    // at record time (see RecordingSettings.videoContainer), which can be
+    // .mp4. A fixed "mov"-only filter here once silently hid every .mp4
+    // recording from the library — found when a user reported a file they
+    // could see in Finder just not showing up in-app.
+    private static let recordingExtensions = Set(VideoContainer.allCases.map { $0.fileExtension.lowercased() })
+
     public init() {}
 
     public func recordings(in directory: URL) -> [RecordingFile] {
@@ -40,7 +48,7 @@ public struct RecordingLibrary: Sendable {
         }
 
         return entries
-            .filter { $0.pathExtension.lowercased() == "mov" }
+            .filter { Self.recordingExtensions.contains($0.pathExtension.lowercased()) }
             .map { url in
                 let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
                 return RecordingFile(
