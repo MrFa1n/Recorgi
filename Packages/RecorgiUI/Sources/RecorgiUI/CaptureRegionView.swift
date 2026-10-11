@@ -251,6 +251,7 @@ struct CaptureRegionView: View {
             }
             .buttonStyle(.glassProminent)
             .buttonBorderShape(.capsule)
+            .tint(themeColor)
             .disabled(isSelectingArea || displays.isEmpty)
             .hoverCursor()
         }
@@ -315,6 +316,7 @@ struct CaptureRegionView: View {
         if isSelected {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: true, cardWidth: cardWidth, action: action)
                 .buttonStyle(.glassProminent)
+                .tint(themeColor)
                 .frame(width: cardWidth)
         } else {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: false, cardWidth: cardWidth, action: action)

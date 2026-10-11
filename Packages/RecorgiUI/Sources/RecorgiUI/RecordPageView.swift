@@ -106,6 +106,7 @@ struct RecordPageView: View {
                     .font(.caption)
                 }
                 .buttonStyle(.plain)
+                .tint(settings.accentColor?.color)
                 .foregroundStyle(.tint)
                 .hoverCursor()
             }

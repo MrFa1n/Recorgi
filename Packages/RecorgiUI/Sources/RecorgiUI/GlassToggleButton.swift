@@ -18,7 +18,7 @@ struct GlassToggleButton: View {
     var body: some View {
         Group {
             if isOn {
-                toggle.buttonStyle(.glassProminent)
+                toggle.buttonStyle(.glassProminent).themedTint()
             } else {
                 toggle.buttonStyle(.glass)
             }

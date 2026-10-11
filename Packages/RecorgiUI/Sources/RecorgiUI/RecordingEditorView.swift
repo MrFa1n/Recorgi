@@ -89,6 +89,7 @@ struct RecordingEditorView: View {
             }
             .buttonStyle(.glassProminent)
             .buttonBorderShape(.circle)
+            .themedTint()
             .hoverCursor()
 
             Text(formatted(playhead))
@@ -139,6 +140,7 @@ struct RecordingEditorView: View {
         }
         .buttonStyle(.glassProminent)
         .buttonBorderShape(.capsule)
+        .themedTint()
         .disabled(isExporting || duration <= 0)
         .hoverCursor()
     }

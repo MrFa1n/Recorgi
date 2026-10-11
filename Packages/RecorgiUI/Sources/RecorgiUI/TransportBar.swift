@@ -72,13 +72,22 @@ struct TransportBar: View {
         }
         .buttonStyle(.glassProminent)
         .buttonBorderShape(.circle)
-        // nil (not .accentColor, a fixed reference to the asset-catalog
-        // color) lets it inherit whatever .tint() ContentView set from the
-        // user's chosen theme — red stays an explicit override while
-        // actually recording, regardless of theme.
-        .tint(isRecording ? .red : nil)
+        .modifier(RecordButtonTint(isRecording: isRecording))
         .disabled(isBusy)
         .hoverCursor()
+    }
+}
+
+/// Red while recording (always, regardless of theme), the user's chosen
+/// accent color otherwise. Split out as its own modifier because a ternary
+/// can't pick between two different `Color?` sources inline without an
+/// `@Environment` read, which only a modifier/view can do.
+private struct RecordButtonTint: ViewModifier {
+    let isRecording: Bool
+    @Environment(\.accentTint) private var accentTint
+
+    func body(content: Content) -> some View {
+        content.tint(isRecording ? .red : accentTint)
     }
 }
 

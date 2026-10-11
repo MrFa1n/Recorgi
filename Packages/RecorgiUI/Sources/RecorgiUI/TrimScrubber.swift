@@ -10,6 +10,9 @@ struct TrimScrubber: View {
     let playhead: Double
     let onSeek: (Double) -> Void
 
+    @Environment(\.accentTint) private var accentTint
+    private var themeColor: Color { accentTint ?? .accentColor }
+
     private let handleWidth: CGFloat = 12
     private let trackHeight: CGFloat = 36
     private let minimumGap: Double = 0.25
@@ -26,7 +29,7 @@ struct TrimScrubber: View {
                     .frame(height: trackHeight)
 
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.accentColor.opacity(0.35))
+                    .fill(themeColor.opacity(0.35))
                     .frame(width: max(0, endX - startX), height: trackHeight)
                     .offset(x: startX)
 
@@ -57,7 +60,7 @@ struct TrimScrubber: View {
 
     private var handle: some View {
         Capsule()
-            .fill(Color.accentColor)
+            .fill(themeColor)
             .frame(width: handleWidth, height: trackHeight + 8)
     }
 

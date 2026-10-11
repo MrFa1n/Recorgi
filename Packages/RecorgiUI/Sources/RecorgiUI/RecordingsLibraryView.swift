@@ -227,6 +227,7 @@ struct RecordingsLibraryView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.capsule)
+                .themedTint()
                 .hoverCursor()
                 .help("Открыть во встроенном плеере")
             }

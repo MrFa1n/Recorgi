@@ -25,10 +25,14 @@ public struct ContentView: View {
                     TransportBar(engine: engine, settings: settings)
                 }
         }
-        // nil means "don't override" — every .glass/.glassProminent button
-        // and every other tint-aware control then simply keeps following
-        // the system accent color, same as before this setting existed.
-        .tint(settings.accentColor?.color)
+        // Deliberately NOT a blanket .tint() here — Liquid Glass's plain
+        // .glass button style turns out to pick up ambient .tint() too, not
+        // just .glassProminent, so a global override recolored buttons that
+        // were never blue (e.g. the "Изменить…" folder picker). Instead this
+        // just carries the choice down via a separate environment key; each
+        // already-blue control opts in explicitly with .themedTint(). See
+        // AccentTint.swift.
+        .environment(\.accentTint, settings.accentColor?.color)
         .task {
             await permissions.requestAll()
         }

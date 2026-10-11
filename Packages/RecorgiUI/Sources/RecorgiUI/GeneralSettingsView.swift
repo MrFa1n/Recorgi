@@ -37,7 +37,7 @@ struct GeneralSettingsView: View {
                         Label("Цвет акцента", systemImage: "paintpalette.fill")
                             .font(.headline)
 
-                        Text("Применяется ко всем кнопкам и к рамке области захвата")
+                        Text("Применяется к акцентным элементам — кнопке записи, рамке области захвата и т.п.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -50,12 +50,14 @@ struct GeneralSettingsView: View {
 
                         Divider()
 
-                        HStack {
-                            Text("Свой цвет")
-                            Spacer()
-                            ColorPicker("Свой цвет", selection: customColorBinding, supportsOpacity: false)
-                                .labelsHidden()
-                        }
+                        // Label intentionally left visible (no
+                        // .labelsHidden()): hidden, this native control is
+                        // just a bare color swatch with no text or icon —
+                        // indistinguishable from a random button. The label
+                        // plus the standard system swatch is what makes it
+                        // read as "tap to pick a custom color", the same as
+                        // every other native color picker in macOS.
+                        ColorPicker("Свой цвет", selection: customColorBinding, supportsOpacity: false)
                     }
                 }
             }
