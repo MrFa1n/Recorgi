@@ -91,7 +91,11 @@ struct RecordingsLibraryView: View {
                 }
             }
             .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // maxHeight too — see GeneralSettingsView's own comment on
+            // this same line: ScrollView centers short content vertically
+            // by default on macOS, which could let a card drift down
+            // under the floating TransportBar.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .task(id: saveDirectory) {
             refresh()

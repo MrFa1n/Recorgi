@@ -171,7 +171,12 @@ struct GeneralSettingsView: View {
                 }
             }
             .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // maxHeight too, not just maxWidth — ScrollView centers
+            // content vertically by default on macOS when it's shorter
+            // than the viewport, which on this page (short enough to not
+            // always need scrolling) let a card drift down far enough to
+            // sit under the floating TransportBar, stealing its clicks.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 

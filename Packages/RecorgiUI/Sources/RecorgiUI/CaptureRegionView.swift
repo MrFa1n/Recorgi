@@ -107,7 +107,11 @@ struct CaptureRegionView: View {
                     }
                 }
                 .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // maxHeight too — see GeneralSettingsView's own comment on
+                // this same line: ScrollView centers short content
+                // vertically by default on macOS, which could let a card
+                // drift down under the floating TransportBar.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // Invisible but present in the hierarchy, so
                 // .keyboardShortcut claims Escape for the whole page
                 // regardless of what, if anything, currently has focus —
