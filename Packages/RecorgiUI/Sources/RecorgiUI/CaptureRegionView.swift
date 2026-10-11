@@ -89,18 +89,6 @@ struct CaptureRegionView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Invisible but present in the hierarchy, so
-                    // .keyboardShortcut claims Escape for the whole page
-                    // regardless of what, if anything, currently has focus —
-                    // the reliable way to handle a page-level shortcut in
-                    // SwiftUI on macOS, rather than fighting over which view
-                    // is first responder.
-                    Button("", action: resetAreaSelection)
-                        .keyboardShortcut(.escape, modifiers: [])
-                        .opacity(0)
-                        .frame(width: 0, height: 0)
-                        .accessibilityHidden(true)
-
                     Text("Область записи")
                         .font(.largeTitle.bold())
 
@@ -120,6 +108,24 @@ struct CaptureRegionView: View {
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Invisible but present in the hierarchy, so
+                // .keyboardShortcut claims Escape for the whole page
+                // regardless of what, if anything, currently has focus —
+                // the reliable way to handle a page-level shortcut in
+                // SwiftUI on macOS, rather than fighting over which view is
+                // first responder. In .background rather than as the
+                // VStack's first child: it used to sit there, and even at
+                // zero size, the VStack's own `spacing: 20` still inserted
+                // a full gap between it and the title below, pushing the
+                // title down by 20pt more than every other page (whose
+                // first child *is* their title).
+                .background(
+                    Button("", action: resetAreaSelection)
+                        .keyboardShortcut(.escape, modifiers: [])
+                        .opacity(0)
+                        .frame(width: 0, height: 0)
+                        .accessibilityHidden(true)
+                )
             }
         }
         .task {
