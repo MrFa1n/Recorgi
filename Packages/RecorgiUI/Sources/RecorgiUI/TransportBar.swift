@@ -28,39 +28,38 @@ struct TransportBar: View {
     }
 
     var body: some View {
-        // GlassEffectContainer shares one backing plate across its
-        // children so they can visually morph/merge — but that plate also
-        // spans the *gaps* between the circle and the two pills, not just
-        // the buttons themselves, and that whole plate was eating clicks
-        // meant for whatever page content happened to be underneath it
-        // (this bar floats over every page via .safeAreaInset). Turning
-        // off hit-testing on the container and explicitly turning it back
-        // on for each button keeps the visual merging but makes only the
-        // actual button shapes clickable again — allowsHitTesting is one
-        // of the few modifiers an ancestor's value doesn't just force on
-        // descendants; a child can still override it back to true.
-        GlassEffectContainer(spacing: 16) {
-            HStack(spacing: 16) {
-                recordButton
-                    .allowsHitTesting(true)
+        // Plain HStack, not GlassEffectContainer: the container shares one
+        // backing plate across its children for the Liquid Glass merge
+        // effect, and that plate spans the *gaps* between the circle and
+        // the two pills too, not just the buttons — eating clicks meant
+        // for whatever page content sits underneath (this bar floats over
+        // every page via .safeAreaInset). Tried gating that with
+        // .allowsHitTesting(false) on the container and (true) back on
+        // each button, but an ancestor's allowsHitTesting(false) actually
+        // wins over a descendant's (true) — SwiftUI applies the
+        // *outermost* value, not the innermost — so that disabled the
+        // buttons too. A plain HStack never had a shared backing plate to
+        // begin with, so there's nothing to gate: each button is hit-
+        // testable exactly where it's drawn, nowhere else. The 3 buttons
+        // never move relative to each other, so the morph/merge visual
+        // GlassEffectContainer exists for wasn't doing anything here
+        // anyway.
+        HStack(spacing: 16) {
+            recordButton
 
-                GlassToggleButton(systemImage: "speaker.wave.2.fill", isOn: $settings.isSystemAudioEnabled)
-                    .help("Системный звук")
-                    .allowsHitTesting(true)
+            GlassToggleButton(systemImage: "speaker.wave.2.fill", isOn: $settings.isSystemAudioEnabled)
+                .help("Системный звук")
 
-                GlassToggleButton(systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
-                    .help("Микрофон")
-                    .allowsHitTesting(true)
+            GlassToggleButton(systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
+                .help("Микрофон")
 
-                if isRecording {
-                    RecordingTimer(startedAt: startedAt)
-                        .font(.callout.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                }
+            if isRecording {
+                RecordingTimer(startedAt: startedAt)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
             }
         }
-        .allowsHitTesting(false)
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
     }
