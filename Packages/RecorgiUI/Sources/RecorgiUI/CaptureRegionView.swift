@@ -344,15 +344,32 @@ struct CaptureRegionView: View {
         // cardWidth comes from the caller (ultimately body's
         // GeometryReader) so every card, in every row, gets the identical
         // value.
+        // The glass bezel the button style paints behind the label isn't a
+        // shape we control or even know the exact radius of — unlike
+        // GlassCard, which draws its own background via an explicit
+        // .glassEffect(in: RoundedRectangle(cornerRadius:)), this is a
+        // plain Button + .buttonBorderShape(.roundedRectangle), where the
+        // system picks the bezel's actual corner radius and how much
+        // internal padding it reserves around the label. When that reserve
+        // runs thinner than the label's own content (like the thumbnail,
+        // padded only 10pt from the label's edge), the thumbnail's square
+        // corner can end up sitting past the bezel's rounded corner. A
+        // second, explicit .clipShape at this outer level — independent of
+        // whatever the glass style itself draws — makes that impossible:
+        // nothing inside can ever render past this card's own boundary,
+        // regardless of how the bezel draws itself underneath.
+        let cardClip = RoundedRectangle(cornerRadius: 16, style: .continuous)
         if isSelected {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: true, cardWidth: cardWidth, action: action)
                 .buttonStyle(.glassProminent)
                 .tint(themeColor)
                 .frame(width: cardWidth, height: sourceCardHeight)
+                .clipShape(cardClip)
         } else {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: false, cardWidth: cardWidth, action: action)
                 .buttonStyle(.glass)
                 .frame(width: cardWidth, height: sourceCardHeight)
+                .clipShape(cardClip)
         }
     }
 
