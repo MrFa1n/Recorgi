@@ -48,14 +48,25 @@ public struct CaptureSourceProvider: Sendable {
     public func availableWindows() async throws -> [WindowInfo] {
         let content: SCShareableContent
         do {
-            content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            // onScreenWindowsOnly: false, not true — true silently drops any
+            // window that isn't on the *currently active* Space (macOS gives
+            // each display/Space its own notion of "on screen" by default).
+            // A user reported exactly this: real, open windows (Mail, VS
+            // Code) missing from the picker just because another Space was
+            // active at the time. SCContentFilter(desktopIndependentWindow:)
+            // — what picking a window actually uses — is specifically built
+            // to keep recording a window across Space switches, so there's
+            // no reason the picker itself should be Space-restricted; the
+            // layer/title filter below already does the real job of
+            // excluding menu bar items, helper windows, and other junk.
+            content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
         } catch {
             Log.devices.error("availableWindows(): SCShareableContent fetch failed: \(error.localizedDescription, privacy: .public)")
             throw error
         }
         let windows = content.windows
             .filter { window in
-                window.isOnScreen && window.windowLayer == 0 && !(window.title ?? "").isEmpty
+                window.windowLayer == 0 && !(window.title ?? "").isEmpty
             }
             .map { window in
                 WindowInfo(
