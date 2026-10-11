@@ -43,7 +43,7 @@ struct RecordingsLibraryView: View {
     @State private var renamingID: URL?
     @State private var renameDraft = ""
     @State private var renameError: String?
-    @FocusState private var renameFieldFocused: Bool
+    @Environment(\.accentTint) private var accentTint
     // @State, not `let` — same reason as CaptureRegionView's AreaHighlighter:
     // SwiftUI recreates this View struct on every re-render, and a plain
     // `let` would silently spawn a fresh, unstarted watcher each time.
@@ -178,13 +178,12 @@ struct RecordingsLibraryView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     if renamingID == recording.id {
-                        TextField("Название записи", text: $renameDraft)
-                            .textFieldStyle(.plain)
-                            .font(.headline)
-                            .focused($renameFieldFocused)
-                            .onSubmit { commitRename(recording) }
-                            .onKeyPress(.escape) { renamingID = nil; return .handled }
-                            .onAppear { renameFieldFocused = true }
+                        ThemedRenameField(
+                            text: $renameDraft,
+                            tint: accentTint.map(NSColor.init) ?? .controlAccentColor,
+                            onCommit: { commitRename(recording) },
+                            onCancel: { renamingID = nil }
+                        )
                     } else {
                         Text(recording.name)
                             .font(.headline)
