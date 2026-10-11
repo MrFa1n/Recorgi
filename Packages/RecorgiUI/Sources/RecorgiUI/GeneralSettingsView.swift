@@ -112,6 +112,13 @@ struct GeneralSettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
+
+                        Button("Сбросить по умолчанию") {
+                            settings.resetHotkeysToDefaults()
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.capsule)
+                        .hoverCursor()
                     }
                 }
 

@@ -49,11 +49,12 @@ public final class RecordingSettings: ObservableObject {
         didSet { Self.persist(recordingQuality) }
     }
 
-    /// nil means unset — no global hotkey registered for that action. No
-    /// default binding is pre-assigned, since guessing a key combo could
-    /// collide with something the user already relies on elsewhere; they
-    /// opt in explicitly in General settings. GlobalHotkeyManager
-    /// (RecorgiCapture) is what actually registers these with the system.
+    /// nil means unset — no global hotkey registered for that action.
+    /// Starts out at the matching `default…Hotkey` below on a fresh
+    /// install; the user can clear or reassign any of them individually in
+    /// General settings, and a "Сбросить по умолчанию" button there calls
+    /// `resetHotkeysToDefaults()`. GlobalHotkeyManager (RecorgiCapture) is
+    /// what actually registers these with the system.
     @Published public var startStopHotkey: HotkeyBinding? {
         didSet { Self.persist(startStopHotkey, key: Self.startStopHotkeyDefaultsKey) }
     }
@@ -64,6 +65,16 @@ public final class RecordingSettings: ObservableObject {
 
     @Published public var toggleSystemAudioHotkey: HotkeyBinding? {
         didSet { Self.persist(toggleSystemAudioHotkey, key: Self.toggleSystemAudioHotkeyDefaultsKey) }
+    }
+
+    public static let defaultStartStopHotkey = HotkeyBinding(keyCode: 25, modifiers: [.command, .shift], displayLabel: "⌘⇧9")
+    public static let defaultToggleMicrophoneHotkey = HotkeyBinding(keyCode: 46, modifiers: [.command, .shift], displayLabel: "⌘⇧M")
+    public static let defaultToggleSystemAudioHotkey = HotkeyBinding(keyCode: 1, modifiers: [.command, .shift], displayLabel: "⌘⇧S")
+
+    public func resetHotkeysToDefaults() {
+        startStopHotkey = Self.defaultStartStopHotkey
+        toggleMicrophoneHotkey = Self.defaultToggleMicrophoneHotkey
+        toggleSystemAudioHotkey = Self.defaultToggleSystemAudioHotkey
     }
 
     private static let accentColorDefaultsKey = "recorgi.accentColor"
@@ -86,9 +97,9 @@ public final class RecordingSettings: ObservableObject {
         self.videoCodec = Self.loadPersistedVideoCodec()
         self.videoContainer = Self.loadPersistedVideoContainer()
         self.recordingQuality = Self.loadPersistedRecordingQuality()
-        self.startStopHotkey = Self.loadPersistedHotkey(key: Self.startStopHotkeyDefaultsKey)
-        self.toggleMicrophoneHotkey = Self.loadPersistedHotkey(key: Self.toggleMicrophoneHotkeyDefaultsKey)
-        self.toggleSystemAudioHotkey = Self.loadPersistedHotkey(key: Self.toggleSystemAudioHotkeyDefaultsKey)
+        self.startStopHotkey = Self.loadPersistedHotkey(key: Self.startStopHotkeyDefaultsKey, default: Self.defaultStartStopHotkey)
+        self.toggleMicrophoneHotkey = Self.loadPersistedHotkey(key: Self.toggleMicrophoneHotkeyDefaultsKey, default: Self.defaultToggleMicrophoneHotkey)
+        self.toggleSystemAudioHotkey = Self.loadPersistedHotkey(key: Self.toggleSystemAudioHotkeyDefaultsKey, default: Self.defaultToggleSystemAudioHotkey)
     }
 
     private static func loadPersistedAccentColor() -> AccentColorChoice? {
@@ -141,14 +152,21 @@ public final class RecordingSettings: ObservableObject {
         UserDefaults.standard.set(quality.rawValue, forKey: recordingQualityDefaultsKey)
     }
 
-    private static func loadPersistedHotkey(key: String) -> HotkeyBinding? {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+    // No UserDefaults entry at all means "never touched" -> use the
+    // default. An explicit clear (binding set to nil) still has to leave
+    // *some* trace, or it would be indistinguishable from "never touched"
+    // on next launch and the default would silently come back — so
+    // clearing writes an empty Data() sentinel instead of removing the
+    // key.
+    private static func loadPersistedHotkey(key: String, default defaultValue: HotkeyBinding) -> HotkeyBinding? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return defaultValue }
+        guard !data.isEmpty else { return nil }
         return try? JSONDecoder().decode(HotkeyBinding.self, from: data)
     }
 
     private static func persist(_ binding: HotkeyBinding?, key: String) {
         guard let binding, let data = try? JSONEncoder().encode(binding) else {
-            UserDefaults.standard.removeObject(forKey: key)
+            UserDefaults.standard.set(Data(), forKey: key)
             return
         }
         UserDefaults.standard.set(data, forKey: key)
