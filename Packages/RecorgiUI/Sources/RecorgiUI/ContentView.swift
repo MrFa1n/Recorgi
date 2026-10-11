@@ -33,6 +33,11 @@ public struct ContentView: View {
         // already-blue control opts in explicitly with .themedTint(). See
         // AccentTint.swift.
         .environment(\.accentTint, settings.accentColor?.color)
+        // nil means "follow the system" (same as never setting this
+        // modifier at all) — a non-nil value forces the whole window
+        // (including native AppKit chrome like the title bar) to that
+        // appearance regardless of System Settings.
+        .preferredColorScheme(settings.appearanceMode.map { $0 == .light ? .light : .dark })
         .task {
             await permissions.requestAll()
         }

@@ -26,7 +26,14 @@ public final class RecordingSettings: ObservableObject {
         didSet { Self.persist(accentColor) }
     }
 
+    /// nil means "follow the system" (light/dark switches with System
+    /// Settings > Appearance) — the original, still-default behavior.
+    @Published public var appearanceMode: AppearanceMode? {
+        didSet { Self.persist(appearanceMode) }
+    }
+
     private static let accentColorDefaultsKey = "recorgi.accentColor"
+    private static let appearanceModeDefaultsKey = "recorgi.appearanceMode"
 
     public init() {
         let moviesDirectory = FileManager.default
@@ -35,6 +42,7 @@ public final class RecordingSettings: ObservableObject {
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies")
         self.saveDirectory = moviesDirectory.appendingPathComponent("Recorgi", isDirectory: true)
         self.accentColor = Self.loadPersistedAccentColor()
+        self.appearanceMode = Self.loadPersistedAppearanceMode()
     }
 
     private static func loadPersistedAccentColor() -> AccentColorChoice? {
@@ -48,5 +56,18 @@ public final class RecordingSettings: ObservableObject {
             return
         }
         UserDefaults.standard.set(data, forKey: accentColorDefaultsKey)
+    }
+
+    private static func loadPersistedAppearanceMode() -> AppearanceMode? {
+        guard let raw = UserDefaults.standard.string(forKey: appearanceModeDefaultsKey) else { return nil }
+        return AppearanceMode(rawValue: raw)
+    }
+
+    private static func persist(_ mode: AppearanceMode?) {
+        guard let mode else {
+            UserDefaults.standard.removeObject(forKey: appearanceModeDefaultsKey)
+            return
+        }
+        UserDefaults.standard.set(mode.rawValue, forKey: appearanceModeDefaultsKey)
     }
 }

@@ -33,6 +33,25 @@ struct GeneralSettingsView: View {
                 }
 
                 GlassCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Тема", systemImage: "circle.lefthalf.filled")
+                            .font(.headline)
+
+                        Picker("Тема", selection: $settings.appearanceMode) {
+                            Label("Системная", systemImage: "circle.lefthalf.filled")
+                                .tag(AppearanceMode?.none)
+                            ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                                Label(mode.label, systemImage: mode.systemImage)
+                                    .tag(AppearanceMode?.some(mode))
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .tint(themeColor)
+                    }
+                }
+
+                GlassCard {
                     VStack(alignment: .leading, spacing: 16) {
                         Label("Цвет акцента", systemImage: "paintpalette.fill")
                             .font(.headline)
@@ -108,6 +127,10 @@ struct GeneralSettingsView: View {
         .buttonStyle(.plain)
         .hoverCursor()
         .help(preset.label)
+    }
+
+    private var themeColor: Color {
+        settings.accentColor?.color ?? Color.accentColor
     }
 
     private var customColorBinding: Binding<Color> {
