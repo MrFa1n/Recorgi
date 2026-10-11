@@ -195,27 +195,26 @@ struct CaptureRegionView: View {
     private func screenContent(gridColumns: [GridItem], cardWidth: CGFloat) -> some View {
         LazyVGrid(columns: gridColumns, alignment: .leading, spacing: cardSpacing) {
             if displays.count > 1 {
-                if let primary = displays.first {
-                    sourceCard(
-                        source: .display(primary.displayID),
-                        title: "Основной дисплей",
-                        subtitle: "Следует настройке системы",
-                        isSelected: settings.captureRegion == .primaryDisplay,
-                        cardWidth: cardWidth
-                    ) {
-                        settings.captureRegion = .primaryDisplay
-                    }
-                }
-
+                // One card per physical display, not one extra on top for
+                // "the primary one" — that used to render as its own card
+                // (bound to .primaryDisplay) *in addition to* that same
+                // display's regular card, so two real monitors showed up as
+                // three cards. The actual primary display's card now just
+                // doubles as that option: picking it sets .primaryDisplay
+                // (follows whichever display is primary, even if that
+                // changes later) instead of pinning to this specific one.
                 ForEach(displays) { display in
+                    let isPrimary = display.displayID == displays.first?.displayID
                     sourceCard(
                         source: .display(display.displayID),
                         title: display.name,
-                        subtitle: "\(display.width)×\(display.height)",
-                        isSelected: settings.captureRegion == .display(display),
+                        subtitle: isPrimary
+                            ? "\(display.width)×\(display.height) · Основной"
+                            : "\(display.width)×\(display.height)",
+                        isSelected: isPrimary ? isPrimaryDisplaySelected : settings.captureRegion == .display(display),
                         cardWidth: cardWidth
                     ) {
-                        settings.captureRegion = .display(display)
+                        settings.captureRegion = isPrimary ? .primaryDisplay : .display(display)
                     }
                 }
             } else if let only = displays.first {
@@ -223,7 +222,7 @@ struct CaptureRegionView: View {
                     source: .display(only.displayID),
                     title: only.name,
                     subtitle: "\(only.width)×\(only.height)",
-                    isSelected: isSingleDisplaySelected,
+                    isSelected: isPrimaryDisplaySelected,
                     cardWidth: cardWidth
                 ) {
                     settings.captureRegion = .primaryDisplay
@@ -447,11 +446,12 @@ struct CaptureRegionView: View {
         settings.accentColor?.nsColor ?? .controlAccentColor
     }
 
-    /// On a single-monitor setup, .primaryDisplay and .display(thatDisplay)
-    /// are functionally identical — treat either as "selected" so the merged
-    /// card still lights up correctly even if the region was picked before
-    /// (e.g. a second monitor got unplugged since).
-    private var isSingleDisplaySelected: Bool {
+    /// .primaryDisplay and .display(theActualPrimaryOne) both mean "record
+    /// the primary display" — treat either as selected so the primary
+    /// display's card still lights up correctly even if the region was
+    /// picked back when the display arrangement was different (e.g. a
+    /// second monitor got unplugged, or a different display was primary).
+    private var isPrimaryDisplaySelected: Bool {
         if case .primaryDisplay = settings.captureRegion { return true }
         if case .display(let picked) = settings.captureRegion, picked == displays.first { return true }
         return false
