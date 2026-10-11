@@ -56,7 +56,9 @@ struct CaptureRegionView: View {
     // very container the grid itself sizes, which is circular — the
     // measurement and the thing being measured kept chasing each other and
     // produced a visibly broken, oscillating layout.
-    private let cardSpacing: CGFloat = 16
+    // Matches the page's own .padding(24) so the gap between cards reads
+    // the same as the gap between the edge cards and the page edge.
+    private let cardSpacing: CGFloat = 24
     private let minCardWidth: CGFloat = 200
 
     init(settings: RecordingSettings) {
