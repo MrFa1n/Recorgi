@@ -115,7 +115,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         try FileManager.default.createDirectory(at: settings.saveDirectory, withIntermediateDirectories: true)
         DebugLog.fileURL = settings.saveDirectory.appendingPathComponent("recorgi-debug.log")
-        let fileURL = settings.saveDirectory.appendingPathComponent(Self.timestampedFilename())
+        let fileURL = settings.saveDirectory.appendingPathComponent(Self.timestampedFilename(extension: settings.videoContainer.fileExtension))
         DebugLog.write("=== start: region=\(settings.captureRegion) sysAudio=\(settings.isSystemAudioEnabled) scope=\(settings.systemAudioScope) mic=\(settings.isMicrophoneEnabled) file=\(fileURL.lastPathComponent)")
 
         // Show the highlight border (if applicable) before fetching
@@ -260,8 +260,8 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         let recordingConfig = SCRecordingOutputConfiguration()
         recordingConfig.outputURL = fileURL
-        recordingConfig.outputFileType = .mov
-        recordingConfig.videoCodecType = .h264
+        recordingConfig.outputFileType = settings.videoContainer.avFileType
+        recordingConfig.videoCodecType = settings.videoCodec.avVideoCodecType
         let recordingOutput = SCRecordingOutput(configuration: recordingConfig, delegate: self)
 
         // Must be added before startCapture() to guarantee the first frame
@@ -301,11 +301,11 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         frameRate: Int,
         fileURL: URL
     ) async throws {
-        let writer = try AVAssetWriter(outputURL: fileURL, fileType: .mov)
+        let writer = try AVAssetWriter(outputURL: fileURL, fileType: settings.videoContainer.avFileType)
 
         let estimatedBitRate = Int((Double(pixelWidth * pixelHeight) / (1920.0 * 1080.0)) * 8_000_000)
         let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: settings.videoCodec.avVideoCodecType,
             AVVideoWidthKey: pixelWidth,
             AVVideoHeightKey: pixelHeight,
             AVVideoCompressionPropertiesKey: [
@@ -638,10 +638,10 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         return "domain=\(nsError.domain) code=\(nsError.code) desc=\(nsError.localizedDescription) userInfo=\(nsError.userInfo)"
     }
 
-    private static func timestampedFilename() -> String {
+    private static func timestampedFilename(extension fileExtension: String) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        return "Recorgi \(formatter.string(from: Date())).mov"
+        return "Recorgi \(formatter.string(from: Date())).\(fileExtension)"
     }
 }
 

@@ -32,8 +32,21 @@ public final class RecordingSettings: ObservableObject {
         didSet { Self.persist(appearanceMode) }
     }
 
+    /// No "system" option for either of these — there's nothing in System
+    /// Settings for a screen recorder's own output codec/container to
+    /// follow. H.264 + .mov match what this always recorded with.
+    @Published public var videoCodec: VideoCodec = .h264 {
+        didSet { Self.persist(videoCodec) }
+    }
+
+    @Published public var videoContainer: VideoContainer = .mov {
+        didSet { Self.persist(videoContainer) }
+    }
+
     private static let accentColorDefaultsKey = "recorgi.accentColor"
     private static let appearanceModeDefaultsKey = "recorgi.appearanceMode"
+    private static let videoCodecDefaultsKey = "recorgi.videoCodec"
+    private static let videoContainerDefaultsKey = "recorgi.videoContainer"
 
     public init() {
         let moviesDirectory = FileManager.default
@@ -43,6 +56,8 @@ public final class RecordingSettings: ObservableObject {
         self.saveDirectory = moviesDirectory.appendingPathComponent("Recorgi", isDirectory: true)
         self.accentColor = Self.loadPersistedAccentColor()
         self.appearanceMode = Self.loadPersistedAppearanceMode()
+        self.videoCodec = Self.loadPersistedVideoCodec()
+        self.videoContainer = Self.loadPersistedVideoContainer()
     }
 
     private static func loadPersistedAccentColor() -> AccentColorChoice? {
@@ -69,5 +84,21 @@ public final class RecordingSettings: ObservableObject {
             return
         }
         UserDefaults.standard.set(mode.rawValue, forKey: appearanceModeDefaultsKey)
+    }
+
+    private static func loadPersistedVideoCodec() -> VideoCodec {
+        UserDefaults.standard.string(forKey: videoCodecDefaultsKey).flatMap(VideoCodec.init(rawValue:)) ?? .h264
+    }
+
+    private static func persist(_ codec: VideoCodec) {
+        UserDefaults.standard.set(codec.rawValue, forKey: videoCodecDefaultsKey)
+    }
+
+    private static func loadPersistedVideoContainer() -> VideoContainer {
+        UserDefaults.standard.string(forKey: videoContainerDefaultsKey).flatMap(VideoContainer.init(rawValue:)) ?? .mov
+    }
+
+    private static func persist(_ container: VideoContainer) {
+        UserDefaults.standard.set(container.rawValue, forKey: videoContainerDefaultsKey)
     }
 }

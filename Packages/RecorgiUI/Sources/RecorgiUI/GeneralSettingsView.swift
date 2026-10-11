@@ -33,6 +33,44 @@ struct GeneralSettingsView: View {
                 }
 
                 GlassCard {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Label("Формат записи", systemImage: "film.fill")
+                            .font(.headline)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Кодек")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Picker("Кодек", selection: $settings.videoCodec) {
+                                ForEach(VideoCodec.allCases, id: \.self) { codec in
+                                    Text(codec.label).tag(codec)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .tint(themeColor)
+                            Text(settings.videoCodec.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Контейнер")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Picker("Контейнер", selection: $settings.videoContainer) {
+                                ForEach(VideoContainer.allCases, id: \.self) { container in
+                                    Text(container.label).tag(container)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .tint(themeColor)
+                        }
+                    }
+                }
+
+                GlassCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Тема", systemImage: "circle.lefthalf.filled")
                             .font(.headline)
