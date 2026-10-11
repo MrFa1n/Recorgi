@@ -49,6 +49,7 @@ struct GeneralSettingsView: View {
                             .labelsHidden()
                             .pickerStyle(.segmented)
                             .tint(themeColor)
+                            .hoverCursor()
                             Text(settings.videoCodec.detail)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -66,6 +67,7 @@ struct GeneralSettingsView: View {
                             .labelsHidden()
                             .pickerStyle(.segmented)
                             .tint(themeColor)
+                            .hoverCursor()
                         }
 
                         // Neither recording path exposes an actual bitrate
@@ -85,6 +87,7 @@ struct GeneralSettingsView: View {
                             .labelsHidden()
                             .pickerStyle(.segmented)
                             .tint(themeColor)
+                            .hoverCursor()
                             Text(settings.recordingQuality.detail)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -138,6 +141,7 @@ struct GeneralSettingsView: View {
                         .labelsHidden()
                         .pickerStyle(.segmented)
                         .tint(themeColor)
+                        .hoverCursor()
                     }
                 }
 

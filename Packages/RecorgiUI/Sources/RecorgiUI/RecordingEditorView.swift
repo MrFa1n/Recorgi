@@ -117,6 +117,7 @@ struct RecordingEditorView: View {
                 .labelsHidden()
                 .pickerStyle(.segmented)
                 .themedTint()
+                .hoverCursor()
                 .fixedSize()
                 .onChange(of: speed) { _, newValue in
                     if isPlaying { player.rate = Float(newValue) }

@@ -183,6 +183,7 @@ struct CaptureRegionView: View {
         .labelsHidden()
         .pickerStyle(.segmented)
         .tint(themeColor)
+        .hoverCursor()
         .frame(maxWidth: 420)
     }
 

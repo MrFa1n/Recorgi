@@ -28,15 +28,29 @@ struct TransportBar: View {
     }
 
     var body: some View {
+        // GlassEffectContainer shares one backing plate across its
+        // children so they can visually morph/merge — but that plate also
+        // spans the *gaps* between the circle and the two pills, not just
+        // the buttons themselves, and that whole plate was eating clicks
+        // meant for whatever page content happened to be underneath it
+        // (this bar floats over every page via .safeAreaInset). Turning
+        // off hit-testing on the container and explicitly turning it back
+        // on for each button keeps the visual merging but makes only the
+        // actual button shapes clickable again — allowsHitTesting is one
+        // of the few modifiers an ancestor's value doesn't just force on
+        // descendants; a child can still override it back to true.
         GlassEffectContainer(spacing: 16) {
             HStack(spacing: 16) {
                 recordButton
+                    .allowsHitTesting(true)
 
                 GlassToggleButton(systemImage: "speaker.wave.2.fill", isOn: $settings.isSystemAudioEnabled)
                     .help("Системный звук")
+                    .allowsHitTesting(true)
 
                 GlassToggleButton(systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
                     .help("Микрофон")
+                    .allowsHitTesting(true)
 
                 if isRecording {
                     RecordingTimer(startedAt: startedAt)
@@ -46,6 +60,7 @@ struct TransportBar: View {
                 }
             }
         }
+        .allowsHitTesting(false)
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
     }
