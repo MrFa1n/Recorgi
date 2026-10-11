@@ -20,10 +20,6 @@ struct RecorgiApp: App {
                 .task {
                     hotkeys.start(settings: settings, engine: engine)
                     menuBar.start(settings: settings, engine: engine)
-                    if ProcessInfo.processInfo.environment["RECORGI_STRESS_TEST"] != nil {
-                        await permissions.requestAll()
-                        await StressTestRunner.run(engine: engine, settings: settings)
-                    }
                 }
         }
         .defaultSize(width: 940, height: 600)
