@@ -1,25 +1,26 @@
-/// How translucent the app's Liquid Glass surfaces (GlassCard, glass button
-/// styles, the capture-area border) render. nil (on
+/// How translucent GlassCard panels render. nil (on
 /// `RecordingSettings.transparencyMode`) means "follow the system" —
 /// System Settings > Accessibility > Display > Reduce Transparency, the
-/// original, still-default behavior. SwiftUI's glass effects already
-/// respect that accessibility setting on their own; this just lets the
-/// user override it for this app specifically, same as appearance and
-/// accent color.
+/// original, still-default behavior — which only ever reports on or off,
+/// so "system" resolves to `.regular` or `.minimal`. A non-nil choice
+/// overrides it for this app and can pick `.medium` too, a middle degree
+/// the system accessibility setting itself has no equivalent for.
 public enum TransparencyMode: String, CaseIterable, Sendable {
-    case normal, reduced
+    case regular, medium, minimal
 
     public var label: String {
         switch self {
-        case .normal: return "Обычная"
-        case .reduced: return "Уменьшенная"
+        case .regular: return "Обычная"
+        case .medium: return "Средняя"
+        case .minimal: return "Минимальная"
         }
     }
 
     public var systemImage: String {
         switch self {
-        case .normal: return "square.stack.3d.up.fill"
-        case .reduced: return "square.fill"
+        case .regular: return "square.stack.3d.up.fill"
+        case .medium: return "square.stack.3d.up"
+        case .minimal: return "square.fill"
         }
     }
 }

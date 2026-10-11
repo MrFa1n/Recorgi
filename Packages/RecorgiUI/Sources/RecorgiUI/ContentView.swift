@@ -43,7 +43,7 @@ public struct ContentView: View {
         // app. See TransparencyOverride.swift for why this needs its own
         // environment key instead of overriding SwiftUI's own
         // accessibilityReduceTransparency (it's get-only here).
-        .environment(\.reduceTransparencyOverride, settings.transparencyMode.map { $0 == .reduced })
+        .environment(\.transparencyOverride, settings.transparencyMode)
         .task {
             await permissions.requestAll()
         }
