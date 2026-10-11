@@ -19,6 +19,7 @@ public struct ContentView: View {
     public var body: some View {
         NavigationSplitView {
             SidebarView(selection: $selection)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
             detail
                 .safeAreaInset(edge: .bottom) {

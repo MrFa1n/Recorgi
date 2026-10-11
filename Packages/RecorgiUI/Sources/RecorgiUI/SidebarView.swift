@@ -18,6 +18,18 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        // The system's default sidebar material is the older vibrancy
+        // effect (NSVisualEffectView under the hood), not Liquid Glass —
+        // it doesn't track System Settings > Appearance's Liquid Glass
+        // slider. Hiding the List's own background and drawing a real
+        // .glassEffect() rectangle behind it instead makes the sidebar
+        // react to that slider live, same as every GlassCard elsewhere.
+        .scrollContentBackground(.hidden)
+        .background {
+            Rectangle()
+                .fill(.clear)
+                .glassEffect(.regular, in: Rectangle())
+        }
         .navigationTitle("Recorgi")
     }
 
