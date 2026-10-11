@@ -129,8 +129,9 @@ struct RecordingsLibraryView: View {
         // bottom-trailing corner as the list scrolls underneath it, same
         // technique ContentView uses to float TransportBar over each page.
         .overlay(alignment: .bottomTrailing) {
-            floatingDeleteButton
+            floatingActionBar
                 .animation(.easeOut(duration: 0.2), value: isControlsRowVisible)
+                .animation(.easeOut(duration: 0.2), value: isSelecting)
         }
         .task(id: saveDirectory) {
             refresh()
@@ -264,22 +265,50 @@ struct RecordingsLibraryView: View {
         }
     }
 
-    /// Stand-in for the controls row's own "Удалить" button once that's
-    /// scrolled out of view — same action, just reachable without
-    /// scrolling back up.
+    /// Stand-in for the controls row's trailing action button(s) once
+    /// that's scrolled out of view — same actions, just reachable without
+    /// scrolling back up. Not selecting yet: a single "Выбрать" entry
+    /// point, so starting a multi-select never needs a trip back to the
+    /// top — every row on screen already grows a checkbox the instant
+    /// isSelecting flips true, right where you're currently looking.
+    /// Already selecting: "Удалить" (with the running count) plus a
+    /// compact "done" button to back out, mirroring the top row's pair.
     @ViewBuilder
-    private var floatingDeleteButton: some View {
-        if isSelecting && !isControlsRowVisible {
-            Button {
-                pendingDelete = recordings.filter { selectedIDs.contains($0.id) }
-            } label: {
-                Label("Удалить (\(selectedIDs.count))", systemImage: "trash")
+    private var floatingActionBar: some View {
+        if !isControlsRowVisible {
+            HStack(spacing: 8) {
+                if isSelecting {
+                    Button {
+                        pendingDelete = recordings.filter { selectedIDs.contains($0.id) }
+                    } label: {
+                        Label("Удалить (\(selectedIDs.count))", systemImage: "trash")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(.red)
+                    .disabled(selectedIDs.isEmpty)
+                    .hoverCursor()
+
+                    Button {
+                        endSelecting()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .hoverCursor()
+                    .help("Готово")
+                } else {
+                    Button("Выбрать") {
+                        isSelecting = true
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .hoverCursor()
+                    .help("Выбрать несколько записей для удаления")
+                }
             }
-            .buttonStyle(.glassProminent)
-            .buttonBorderShape(.capsule)
-            .tint(.red)
-            .disabled(selectedIDs.isEmpty)
-            .hoverCursor()
             .padding(.trailing, 20)
             .padding(.bottom, 20)
             .transition(.move(edge: .bottom).combined(with: .opacity))
