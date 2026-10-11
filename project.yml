@@ -49,6 +49,17 @@ targets:
         CODE_SIGN_IDENTITY: "Recorgi Local Dev"
         SWIFT_VERSION: "5.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      # Release is for Scripts/make-dmg.sh, not day-to-day dev: it packages
+      # a build meant to run on OTHER Macs, which don't have (and can't
+      # trust) this machine's local "Recorgi Local Dev" certificate. Ad-hoc
+      # signing ("-") needs no certificate at all and is the normal way a
+      # small open-source app without an Apple Developer Program membership
+      # gets distributed — Gatekeeper will still flag it as unidentified on
+      # first launch (there's no notarization without a paid Developer ID),
+      # which is why the README walks installers through "Open Anyway".
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: "-"
     info:
       path: Recorgi/Info.plist
       properties:

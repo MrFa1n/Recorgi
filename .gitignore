@@ -27,6 +27,7 @@ Carthage/Build/
 
 # Build output
 build/
+dist/
 *.ipa
 *.dSYM.zip
 *.dSYM
