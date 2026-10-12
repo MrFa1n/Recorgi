@@ -8,6 +8,14 @@ struct AudioSourcesView: View {
     @State private var outputDevices: [AudioOutputDevice] = []
     @State private var runningApps: [AudioApplication] = []
     @State private var appsLoadError: String?
+    // 0...100 — mirrors CoreAudio's own 0...1 scalar as a percentage, which
+    // reads more naturally on a slider than a fraction. Kept as a separate
+    // @State rather than binding the Slider straight to
+    // settings.microphoneVolume: that property is nil until the user
+    // actually touches this control (see its own doc comment), but the
+    // Slider itself always needs a concrete number to show — this starts
+    // out mirroring the device's real current hardware volume instead.
+    @State private var microphoneVolumePercent: Double = 100
 
     private let deviceProvider = AudioDeviceProvider()
     private let applicationProvider = RunningApplicationProvider()
@@ -61,6 +69,28 @@ struct AudioSourcesView: View {
 
                         Divider()
 
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Громкость микрофона")
+                                Spacer()
+                                Text("\(Int(microphoneVolumePercent.rounded()))%")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            Slider(value: $microphoneVolumePercent, in: 0...100, step: 1) {
+                                Text("Громкость микрофона")
+                            }
+                            .onChange(of: microphoneVolumePercent) { _, newValue in
+                                applyMicrophoneVolume(percent: newValue)
+                            }
+                            Text("Меняет громкость входа самого микрофона в системе — действует сразу, независимо от того, идёт запись или нет")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .disabled(!settings.isMicrophoneEnabled)
+
+                        Divider()
+
                         GlassToggleButton("Слушать микрофон во время записи", systemImage: "headphones", isOn: $settings.isMonitoringEnabled)
                             .disabled(!settings.isMicrophoneEnabled)
 
@@ -87,11 +117,36 @@ struct AudioSourcesView: View {
         .task {
             microphones = deviceProvider.availableMicrophones()
             outputDevices = deviceProvider.availableOutputDevices()
+            syncMicrophoneVolumeDisplay()
             do {
                 runningApps = try await applicationProvider.availableApplications()
             } catch {
                 appsLoadError = "Не удалось получить список приложений: \(error.localizedDescription)"
             }
         }
+        .onChange(of: settings.selectedMicrophoneID) {
+            syncMicrophoneVolumeDisplay()
+        }
+    }
+
+    /// Shows the newly-selected microphone's own real current volume if the
+    /// user has never touched this slider, or re-applies their chosen
+    /// percentage onto it otherwise — called on first appearance and every
+    /// time the selected device changes.
+    private func syncMicrophoneVolumeDisplay() {
+        if let saved = settings.microphoneVolume {
+            microphoneVolumePercent = (saved * 100).rounded()
+            MicrophoneVolumeController.setVolume(Float(saved), deviceUID: settings.selectedMicrophoneID)
+        } else if let current = MicrophoneVolumeController.currentVolume(deviceUID: settings.selectedMicrophoneID) {
+            microphoneVolumePercent = (Double(current) * 100).rounded()
+        } else {
+            microphoneVolumePercent = 100
+        }
+    }
+
+    private func applyMicrophoneVolume(percent: Double) {
+        let scalar = percent / 100
+        settings.microphoneVolume = scalar
+        MicrophoneVolumeController.setVolume(Float(scalar), deviceUID: settings.selectedMicrophoneID)
     }
 }

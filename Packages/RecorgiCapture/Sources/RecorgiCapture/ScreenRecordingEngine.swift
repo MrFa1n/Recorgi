@@ -229,6 +229,15 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         Log.capture.notice("performStart: resolved pixelSize=\(pixelWidth, privacy: .public)x\(pixelHeight, privacy: .public) frameRate=\(frameRate, privacy: .public) pipeline=\(isAppScoped ? "legacy-app-scoped" : "SCRecordingOutput", privacy: .public)")
 
+        // Re-applied here, not just when the user drags the slider in Audio
+        // Sources: this is a real CoreAudio hardware setting, so anything
+        // else on the system (another app, a device reconnect) could have
+        // changed it since. nil means the user never touched the slider —
+        // leave the device's existing volume alone.
+        if settings.isMicrophoneEnabled, let micVolume = settings.microphoneVolume {
+            MicrophoneVolumeController.setVolume(Float(micVolume), deviceUID: settings.selectedMicrophoneID)
+        }
+
         if isAppScoped {
             try await performStartLegacyAppScopedAudio(
                 settings: settings,

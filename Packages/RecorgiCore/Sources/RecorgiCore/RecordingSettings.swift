@@ -14,6 +14,18 @@ public final class RecordingSettings: ObservableObject {
     @Published public var systemAudioScope: SystemAudioScope = .entireSystem
     @Published public var isMicrophoneEnabled: Bool = true
     @Published public var selectedMicrophoneID: String?
+    /// 0...1, matching CoreAudio's own input-gain scalar. nil means "never
+    /// touched" — leave the microphone's hardware volume exactly as the
+    /// system (or the user, outside this app) already has it, rather than
+    /// silently forcing it to some default the first time this app runs.
+    /// Only gets a concrete value once the user actually drags the slider
+    /// in Audio Sources — see AudioSourcesView and MicrophoneVolumeController
+    /// (RecorgiCapture), which is what actually applies it via CoreAudio;
+    /// this type stays free of that import on purpose (see architecture
+    /// note in CLAUDE.md).
+    @Published public var microphoneVolume: Double? {
+        didSet { Self.persist(microphoneVolume, key: Self.microphoneVolumeDefaultsKey) }
+    }
     @Published public var isMonitoringEnabled: Bool = false
     @Published public var selectedMonitoringOutputID: String?
     @Published public var saveDirectory: URL
@@ -85,6 +97,7 @@ public final class RecordingSettings: ObservableObject {
     private static let startStopHotkeyDefaultsKey = "recorgi.startStopHotkey"
     private static let toggleMicrophoneHotkeyDefaultsKey = "recorgi.toggleMicrophoneHotkey"
     private static let toggleSystemAudioHotkeyDefaultsKey = "recorgi.toggleSystemAudioHotkey"
+    private static let microphoneVolumeDefaultsKey = "recorgi.microphoneVolume"
 
     public init() {
         let moviesDirectory = FileManager.default
@@ -100,6 +113,20 @@ public final class RecordingSettings: ObservableObject {
         self.startStopHotkey = Self.loadPersistedHotkey(key: Self.startStopHotkeyDefaultsKey, default: Self.defaultStartStopHotkey)
         self.toggleMicrophoneHotkey = Self.loadPersistedHotkey(key: Self.toggleMicrophoneHotkeyDefaultsKey, default: Self.defaultToggleMicrophoneHotkey)
         self.toggleSystemAudioHotkey = Self.loadPersistedHotkey(key: Self.toggleSystemAudioHotkeyDefaultsKey, default: Self.defaultToggleSystemAudioHotkey)
+        self.microphoneVolume = Self.loadPersistedMicrophoneVolume()
+    }
+
+    private static func loadPersistedMicrophoneVolume() -> Double? {
+        guard UserDefaults.standard.object(forKey: microphoneVolumeDefaultsKey) != nil else { return nil }
+        return UserDefaults.standard.double(forKey: microphoneVolumeDefaultsKey)
+    }
+
+    private static func persist(_ volume: Double?, key: String) {
+        guard let volume else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        UserDefaults.standard.set(volume, forKey: key)
     }
 
     private static func loadPersistedAccentColor() -> AccentColorChoice? {
