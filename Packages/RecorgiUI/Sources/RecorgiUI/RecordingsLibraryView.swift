@@ -175,6 +175,11 @@ struct RecordingsLibraryView: View {
         }
         .sheet(item: $editingRecording) { recording in
             RecordingEditorView(recording: recording, onExported: refresh)
+                // Plain .sheet() sizes itself once from the content's ideal
+                // frame and doesn't let the user drag-resize it — .fitted
+                // keeps that initial sizing, .sticky(...) is what actually
+                // turns on manual resizing (and remembers it for next time).
+                .presentationSizing(.fitted.sticky(horizontal: true, vertical: true))
         }
     }
 
