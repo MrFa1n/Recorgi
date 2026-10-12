@@ -28,7 +28,7 @@ struct RecordingEditorView: View {
     @State private var timeObserverToken: Any?
 
     @State private var audioTrackLayout: AudioTrackLayout = .none
-    @State private var isAudioSectionExpanded = false
+    @State private var isAudioSectionExpanded = true
     @State private var microphoneVolume = AudioTrackVolume()
     @State private var systemAudioVolume = AudioTrackVolume()
     @State private var combinedVolume = AudioTrackVolume()

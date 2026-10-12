@@ -176,10 +176,16 @@ struct RecordingsLibraryView: View {
         .sheet(item: $editingRecording) { recording in
             RecordingEditorView(recording: recording, onExported: refresh)
                 // Plain .sheet() sizes itself once from the content's ideal
-                // frame and doesn't let the user drag-resize it — .fitted
-                // keeps that initial sizing, .sticky(...) is what actually
-                // turns on manual resizing (and remembers it for next time).
-                .presentationSizing(.fitted.sticky(horizontal: true, vertical: true))
+                // frame and doesn't let the user drag-resize it at all.
+                // .fitted.sticky(...) (tried first) only actually freed up
+                // width — .fitted keeps re-deriving its "fitted" size from
+                // the content's own layout, and this sheet's height is
+                // dominated by a ScrollView with no stable ideal height of
+                // its own to latch onto, so it kept winning over the user's
+                // vertical drag. .automatic doesn't fight a manual resize
+                // the same way; .sticky(...) is what actually turns
+                // dragging on (and remembers the chosen size) per axis.
+                .presentationSizing(.automatic.sticky(horizontal: true, vertical: true))
         }
     }
 
