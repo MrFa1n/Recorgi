@@ -71,10 +71,21 @@ struct RecordingEditorView: View {
 
             transportRow
 
-            TrimScrubber(duration: duration, trimStart: $trimStart, trimEnd: $trimEnd, playhead: playhead, onSeek: seek)
+            // The audio section (two draggable-region timelines, when the
+            // source has separate mic/system tracks) can easily grow taller
+            // than this sheet's fixed frame — without a ScrollView that
+            // content was simply unreachable below the window's bottom
+            // edge, with no way to get to it. The export row stays outside,
+            // always visible, since it's the primary action.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    TrimScrubber(duration: duration, trimStart: $trimStart, trimEnd: $trimEnd, playhead: playhead, onSeek: seek)
 
-            if audioTrackLayout != .none {
-                audioSection
+                    if audioTrackLayout != .none {
+                        audioSection
+                    }
+                }
+                .padding(.vertical, 2)
             }
 
             HStack {
