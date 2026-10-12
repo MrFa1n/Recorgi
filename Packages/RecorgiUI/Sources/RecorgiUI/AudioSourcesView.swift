@@ -76,13 +76,22 @@ struct AudioSourcesView: View {
                                 Text("\(Int(microphoneVolumePercent.rounded()))%")
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
+                                Button {
+                                    microphoneVolumePercent = 100
+                                    applyMicrophoneVolume(percent: 100)
+                                } label: {
+                                    Image(systemName: "arrow.counterclockwise")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Сбросить до 100%")
+                                .disabled(microphoneVolumePercent == 100)
+                                .hoverCursor()
                             }
-                            Slider(value: $microphoneVolumePercent, in: 0...100, step: 1) {
-                                Text("Громкость микрофона")
-                            }
-                            .onChange(of: microphoneVolumePercent) { _, newValue in
-                                applyMicrophoneVolume(percent: newValue)
-                            }
+                            Slider(value: $microphoneVolumePercent, in: 0...100, step: 1)
+                                .labelsHidden()
+                                .onChange(of: microphoneVolumePercent) { _, newValue in
+                                    applyMicrophoneVolume(percent: newValue)
+                                }
                             Text("Меняет громкость входа самого микрофона в системе — действует сразу, независимо от того, идёт запись или нет")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
