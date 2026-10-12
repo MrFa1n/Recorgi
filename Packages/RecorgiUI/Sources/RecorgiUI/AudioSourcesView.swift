@@ -20,6 +20,10 @@ struct AudioSourcesView: View {
     private let deviceProvider = AudioDeviceProvider()
     private let applicationProvider = RunningApplicationProvider()
 
+    private var themeColor: Color {
+        settings.accentColor?.color ?? Color.accentColor
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -89,6 +93,7 @@ struct AudioSourcesView: View {
                             }
                             Slider(value: $microphoneVolumePercent, in: 0...100, step: 1)
                                 .labelsHidden()
+                                .tint(themeColor)
                                 .onChange(of: microphoneVolumePercent) { _, newValue in
                                     applyMicrophoneVolume(percent: newValue)
                                 }

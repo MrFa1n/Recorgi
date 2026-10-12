@@ -97,7 +97,10 @@ struct VolumeRegionTimeline: View {
     private func regionBlock(_ region: AudioVolumeRegion, width: CGFloat, isSelected: Bool) -> some View {
         let startX = x(region.startSeconds, width)
         let endX = x(region.endSeconds, width)
-        let color = region.gain >= 1.0 ? trackColor : .orange
+        // A cut darkens this track's own color rather than switching to an
+        // unrelated fixed color (orange) — stays visually tied to the track
+        // regardless of what trackColor the caller picked.
+        let color = region.gain >= 1.0 ? trackColor : trackColor.mix(with: .black, by: 0.35)
 
         return RoundedRectangle(cornerRadius: 4)
             .fill(color.opacity(isSelected ? 0.55 : 0.3))
@@ -132,7 +135,7 @@ struct VolumeRegionTimeline: View {
                 step: 0.01
             )
             .labelsHidden()
-            .tint(regions[index].gain >= 1.0 ? trackColor : .orange)
+            .tint(regions[index].gain >= 1.0 ? trackColor : trackColor.mix(with: .black, by: 0.35))
         }
         .padding(10)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))

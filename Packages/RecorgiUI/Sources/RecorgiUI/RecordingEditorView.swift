@@ -13,6 +13,7 @@ struct RecordingEditorView: View {
     var onExported: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accentTint) private var accentTint
 
     @State private var player: AVPlayer
     @State private var duration: Double = 0
@@ -167,15 +168,24 @@ struct RecordingEditorView: View {
         }
     }
 
+    /// Follows the user's accent-color choice like everything else in the
+    /// app, instead of a fixed color — see the Theming convention in
+    /// CLAUDE.md. The two tracks get different shades of the SAME color so
+    /// they stay visually distinguishable from each other without needing
+    /// an unrelated second hue.
+    private var themeColor: Color { accentTint ?? .accentColor }
+    private var systemAudioColor: Color { themeColor }
+    private var microphoneColor: Color { themeColor.mix(with: .white, by: 0.45) }
+
     private var audioSection: some View {
         DisclosureGroup("Звук", isExpanded: $isAudioSectionExpanded) {
             VStack(alignment: .leading, spacing: 16) {
                 switch audioTrackLayout {
                 case .separate:
-                    VolumeRegionTimeline(duration: duration, trackLabel: "Системный звук", trackColor: .orange, baseGain: $systemAudioVolume.baseGain, regions: $systemAudioVolume.regions)
-                    VolumeRegionTimeline(duration: duration, trackLabel: "Микрофон", trackColor: .blue, baseGain: $microphoneVolume.baseGain, regions: $microphoneVolume.regions)
+                    VolumeRegionTimeline(duration: duration, trackLabel: "Системный звук", trackColor: systemAudioColor, baseGain: $systemAudioVolume.baseGain, regions: $systemAudioVolume.regions)
+                    VolumeRegionTimeline(duration: duration, trackLabel: "Микрофон", trackColor: microphoneColor, baseGain: $microphoneVolume.baseGain, regions: $microphoneVolume.regions)
                 case .combined:
-                    VolumeRegionTimeline(duration: duration, trackLabel: "Громкость записи", trackColor: .blue, baseGain: $combinedVolume.baseGain, regions: $combinedVolume.regions)
+                    VolumeRegionTimeline(duration: duration, trackLabel: "Громкость записи", trackColor: themeColor, baseGain: $combinedVolume.baseGain, regions: $combinedVolume.regions)
                 case .none:
                     EmptyView()
                 }
