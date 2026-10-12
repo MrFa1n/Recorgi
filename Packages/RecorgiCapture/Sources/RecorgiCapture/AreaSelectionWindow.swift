@@ -51,6 +51,13 @@ final class AreaSelectionWindow: NSWindow {
         NSCursor.pop()
         completion(rect)
     }
+
+    /// Hides this overlay without invoking `completion` — used when a
+    /// sibling overlay on another display already resolved the selection, so
+    /// this one's own answer (if any) must be discarded, not reported too.
+    func cancelWithoutCompletion() {
+        orderOut(nil)
+    }
 }
 
 private final class AreaSelectionView: NSView {

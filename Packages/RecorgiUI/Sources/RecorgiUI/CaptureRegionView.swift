@@ -30,7 +30,6 @@ struct CaptureRegionView: View {
     @State private var windows: [WindowInfo] = []
     @State private var loadError: String?
     @State private var isSelectingArea = false
-    @State private var areaTargetDisplayID: UInt32?
     // Bumped on NSColor.systemColorsDidChangeNotification so this view's
     // body actually re-renders when the system accent changes while in
     // "follow the system" mode — see the .onReceive below.
@@ -266,18 +265,16 @@ struct CaptureRegionView: View {
 
     private var areaContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if displays.count > 1 {
-                areaDisplayPicker
-            }
-
-            if case .area(let display, let rect) = settings.captureRegion, display == areaTargetDisplay {
+            if case .area(let display, let rect) = settings.captureRegion {
                 areaPreview(display: display, rect: rect)
                 Text("\(Int(rect.width))×\(Int(rect.height)) на «\(display.name)» · перетащи рамку на экране, чтобы подвинуть или изменить размер")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-            } else if let target = areaTargetDisplay {
-                areaPreview(display: target, rect: nil)
-                Text("Выдели произвольный прямоугольник перетаскиванием, как в системном скриншоте (⌘⇧5)")
+            } else if let primary = displays.first {
+                areaPreview(display: primary, rect: nil)
+                Text(displays.count > 1
+                    ? "Перетащи курсор на любой экран и выдели на нём прямоугольник — как в системном скриншоте (⌘⇧5)"
+                    : "Выдели произвольный прямоугольник перетаскиванием, как в системном скриншоте (⌘⇧5)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -291,40 +288,6 @@ struct CaptureRegionView: View {
             .disabled(isSelectingArea || displays.isEmpty)
             .hoverCursor()
         }
-    }
-
-    /// Only shown with more than one display — picks which physical screen
-    /// `selectArea()` opens the drag-to-select overlay on and which one
-    /// `areaPreview` shows. Defaults to whichever display the current saved
-    /// area is on, falling back to the primary display.
-    private var areaDisplayPicker: some View {
-        Picker("Экран", selection: Binding(
-            get: { areaTargetDisplay?.displayID ?? displays.first?.displayID ?? 0 },
-            set: { areaTargetDisplayID = $0 }
-        )) {
-            ForEach(displays) { display in
-                Text(display.name).tag(display.displayID)
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-        .tint(themeColor)
-        .hoverCursor()
-        .frame(maxWidth: 420)
-    }
-
-    /// nil until the user actively switches the picker — resolves to the
-    /// saved area's own display (if it still exists) so reopening this page
-    /// doesn't silently jump back to the primary display, then falls back to
-    /// the primary display when nothing else applies.
-    private var areaTargetDisplay: DisplayInfo? {
-        if let id = areaTargetDisplayID, let match = displays.first(where: { $0.displayID == id }) {
-            return match
-        }
-        if case .area(let display, _) = settings.captureRegion, displays.contains(display) {
-            return display
-        }
-        return displays.first
     }
 
     /// A real screenshot of the display, with the selected rect drawn as a
@@ -507,12 +470,16 @@ struct CaptureRegionView: View {
         }
     }
 
+    /// Opens the drag-to-select overlay on every connected display at once —
+    /// like the system screenshot tool (⌘⇧5) — so the user just moves the
+    /// cursor to whichever monitor they want and drags there directly,
+    /// instead of first picking a display somewhere in this UI.
     private func selectArea() {
-        guard let target = areaTargetDisplay else { return }
+        guard !displays.isEmpty else { return }
         isSelectingArea = true
         Task {
-            if let rect = await areaSelector.selectArea(on: target.displayID) {
-                settings.captureRegion = .area(target, rect)
+            if let (display, rect) = await areaSelector.selectArea(on: displays) {
+                settings.captureRegion = .area(display, rect)
             }
             isSelectingArea = false
         }
