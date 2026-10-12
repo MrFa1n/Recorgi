@@ -52,7 +52,18 @@ struct RecordingEditorView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
+        // Was one fixed VStack with a ScrollView carved out just for the
+        // trim/audio controls — on a small window (or a display that can't
+        // fit the ideal height) the player's own 320pt floor alone left
+        // that carved-out area squeezed to almost nothing, so the audio
+        // section and even the export button could end up genuinely
+        // unreachable, not just visually tight. Now the whole middle
+        // (player, transport, trim, audio) scrolls as one unit between a
+        // fixed header and a fixed export footer — same pinned-header/
+        // pinned-footer shape the rest of the app already uses (see
+        // CaptureRegionView/GeneralSettingsView's own TransportBar
+        // comments), so everything stays reachable at any window size.
+        VStack(spacing: 0) {
             HStack {
                 Text(recording.name)
                     .font(.headline)
@@ -63,30 +74,29 @@ struct RecordingEditorView: View {
                     .buttonBorderShape(.capsule)
                     .hoverCursor()
             }
+            .padding(24)
+            .padding(.bottom, 4)
 
-            PlayerLayerView(player: player)
-                .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .frame(minHeight: 320)
-
-            transportRow
-
-            // The audio section (two draggable-region timelines, when the
-            // source has separate mic/system tracks) can easily grow taller
-            // than this sheet's fixed frame — without a ScrollView that
-            // content was simply unreachable below the window's bottom
-            // edge, with no way to get to it. The export row stays outside,
-            // always visible, since it's the primary action.
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(spacing: 20) {
+                    PlayerLayerView(player: player)
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .frame(minHeight: 240)
+
+                    transportRow
+
                     TrimScrubber(duration: duration, trimStart: $trimStart, trimEnd: $trimEnd, playhead: playhead, onSeek: seek)
 
                     if audioTrackLayout != .none {
                         audioSection
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 8)
             }
+
+            Divider()
 
             HStack {
                 Text("\(formatted(trimStart)) – \(formatted(trimEnd)) · длительность \(formatted(trimEnd - trimStart))")
@@ -95,9 +105,9 @@ struct RecordingEditorView: View {
                 Spacer()
                 exportButton
             }
+            .padding(24)
         }
-        .padding(24)
-        .frame(minWidth: 680, idealWidth: 760, minHeight: 540, idealHeight: 620)
+        .frame(minWidth: 680, idealWidth: 760, minHeight: 420, idealHeight: 660)
         .task { await loadAsset() }
         .onDisappear { teardownPlayer() }
         .alert("Ошибка", isPresented: Binding(
