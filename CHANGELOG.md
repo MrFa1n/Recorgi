@@ -4,6 +4,31 @@ All notable changes to Recorgi are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match the
 `MARKETING_VERSION` baked into each build and the git tag it ships under.
 
+## [0.3.0] - 2026-10-12
+
+### Added
+
+- Microphone volume control in Audio Sources — adjustable live, whether
+  or not a recording is in progress.
+- The recording editor can now adjust microphone and system audio
+  volume separately, including boosting or lowering just part of the
+  recording, with instant audible preview before saving.
+
+### Changed
+
+- Selecting a custom area to record now works across every connected
+  display at once — drag on whichever screen you want, no need to pick
+  one first.
+- The recording editor window can be resized, and its "Звук" section
+  now starts expanded.
+- Volume sliders and other new controls now follow the chosen accent
+  color like the rest of the app.
+
+### Fixed
+
+- The area-selection overlay is easier to see: a darker dimmed
+  background and a bigger, clearer instruction banner.
+
 ## [0.2.0] - 2026-10-12
 
 ### Added
