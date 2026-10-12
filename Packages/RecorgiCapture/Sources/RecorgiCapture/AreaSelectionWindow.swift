@@ -138,7 +138,10 @@ private final class AreaSelectionView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.3).setFill()
+        // Was 0.3 — too close to a normal bright desktop to read as "the app
+        // is waiting for you to drag", especially on a second monitor the
+        // user wasn't already looking at.
+        NSColor.black.withAlphaComponent(0.55).setFill()
         bounds.fill()
 
         if let rect = currentRect {
@@ -159,23 +162,33 @@ private final class AreaSelectionView: NSView {
     }
 
     private func drawInstructions() {
+        // Bigger, bolder, and on a near-opaque pill with its own border —
+        // the previous version (13pt medium on a 0.55-alpha pill) read as
+        // faint instructional overlays usually do: easy to miss entirely,
+        // especially glanced at on a second monitor.
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+            .font: NSFont.systemFont(ofSize: 16, weight: .semibold),
             .foregroundColor: NSColor.white
         ]
         let text = "Перетащи, чтобы выделить область  ·  Esc — отмена" as NSString
         let textSize = text.size(withAttributes: attributes)
-        let padding: CGFloat = 10
-        let origin = NSPoint(x: (bounds.width - textSize.width) / 2, y: bounds.height - textSize.height - 32)
+        let paddingH: CGFloat = 20
+        let paddingV: CGFloat = 12
+        let origin = NSPoint(x: (bounds.width - textSize.width) / 2, y: bounds.height - textSize.height - 40)
         let backgroundRect = NSRect(
-            x: origin.x - padding,
-            y: origin.y - padding / 2,
-            width: textSize.width + padding * 2,
-            height: textSize.height + padding
+            x: origin.x - paddingH,
+            y: origin.y - paddingV / 2,
+            width: textSize.width + paddingH * 2,
+            height: textSize.height + paddingV
         )
 
-        NSColor.black.withAlphaComponent(0.55).setFill()
-        NSBezierPath(roundedRect: backgroundRect, xRadius: 8, yRadius: 8).fill()
+        let background = NSBezierPath(roundedRect: backgroundRect, xRadius: 12, yRadius: 12)
+        NSColor.black.withAlphaComponent(0.85).setFill()
+        background.fill()
+        NSColor.white.withAlphaComponent(0.35).setStroke()
+        background.lineWidth = 1
+        background.stroke()
+
         text.draw(at: origin, withAttributes: attributes)
     }
 }
