@@ -26,6 +26,22 @@ struct RecordingEditorView: View {
     @State private var exportError: String?
     @State private var timeObserverToken: Any?
 
+    @State private var audioTrackLayout: AudioTrackLayout = .none
+    @State private var isAudioSectionExpanded = false
+    @State private var microphoneVolume = AudioTrackVolume()
+    @State private var systemAudioVolume = AudioTrackVolume()
+    @State private var combinedVolume = AudioTrackVolume()
+
+    private enum AudioTrackLayout: Equatable {
+        case none
+        /// One track — mic and system audio already mixed together (older
+        /// macOS), or only one of them was ever captured.
+        case combined
+        /// Two tracks — see VideoEditExporter.buildAudioMix's doc comment
+        /// for how index 0/1 map to system audio/microphone.
+        case separate
+    }
+
     private let exporter = VideoEditExporter()
     private let speeds: [Double] = [0.5, 1.0, 1.5, 2.0]
 
@@ -56,6 +72,10 @@ struct RecordingEditorView: View {
             transportRow
 
             TrimScrubber(duration: duration, trimStart: $trimStart, trimEnd: $trimEnd, playhead: playhead, onSeek: seek)
+
+            if audioTrackLayout != .none {
+                audioSection
+            }
 
             HStack {
                 Text("\(formatted(trimStart)) – \(formatted(trimEnd)) · длительность \(formatted(trimEnd - trimStart))")
@@ -126,6 +146,27 @@ struct RecordingEditorView: View {
         }
     }
 
+    private var audioSection: some View {
+        DisclosureGroup("Звук", isExpanded: $isAudioSectionExpanded) {
+            VStack(alignment: .leading, spacing: 16) {
+                switch audioTrackLayout {
+                case .separate:
+                    VolumeRegionTimeline(duration: duration, trackLabel: "Системный звук", trackColor: .orange, baseGain: $systemAudioVolume.baseGain, regions: $systemAudioVolume.regions)
+                    VolumeRegionTimeline(duration: duration, trackLabel: "Микрофон", trackColor: .blue, baseGain: $microphoneVolume.baseGain, regions: $microphoneVolume.regions)
+                case .combined:
+                    VolumeRegionTimeline(duration: duration, trackLabel: "Громкость записи", trackColor: .blue, baseGain: $combinedVolume.baseGain, regions: $combinedVolume.regions)
+                case .none:
+                    EmptyView()
+                }
+            }
+            .padding(.top, 8)
+        }
+        .themedTint()
+        .onChange(of: microphoneVolume) { _, _ in applyAudioMixToPlayer() }
+        .onChange(of: systemAudioVolume) { _, _ in applyAudioMixToPlayer() }
+        .onChange(of: combinedVolume) { _, _ in applyAudioMixToPlayer() }
+    }
+
     private var exportButton: some View {
         Button {
             Task { await export() }
@@ -152,6 +193,12 @@ struct RecordingEditorView: View {
         guard let loadedDuration = try? await asset.load(.duration) else { return }
         duration = loadedDuration.seconds
         trimEnd = duration
+
+        switch (try? await asset.loadTracks(withMediaType: .audio))?.count ?? 0 {
+        case 0: audioTrackLayout = .none
+        case 1: audioTrackLayout = .combined
+        default: audioTrackLayout = .separate
+        }
 
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         // queue: .main guarantees this closure runs on the main thread, so
@@ -196,6 +243,24 @@ struct RecordingEditorView: View {
         player.pause()
     }
 
+    /// Mirrors the chosen volume plan onto the live player so what's
+    /// audible while editing matches what export() will actually bake in —
+    /// same AVMutableAudioMix-building logic either way (see
+    /// VideoEditExporter.buildAudioMix), just against the source asset's
+    /// own tracks instead of a trimmed/sped-up composition's.
+    private func applyAudioMixToPlayer() {
+        guard let asset = player.currentItem?.asset else { return }
+        Task {
+            guard let tracks = try? await asset.loadTracks(withMediaType: .audio) else { return }
+            player.currentItem?.audioMix = VideoEditExporter.buildAudioMix(
+                tracks: tracks,
+                microphoneVolume: microphoneVolume,
+                systemAudioVolume: systemAudioVolume,
+                combinedVolume: combinedVolume
+            )
+        }
+    }
+
     private func export() async {
         isExporting = true
         exportProgress = 0
@@ -204,7 +269,14 @@ struct RecordingEditorView: View {
             end: CMTime(seconds: trimEnd, preferredTimescale: 600)
         )
         do {
-            _ = try await exporter.export(sourceURL: recording.url, range: range, speed: speed) { progress in
+            _ = try await exporter.export(
+                sourceURL: recording.url,
+                range: range,
+                speed: speed,
+                microphoneVolume: microphoneVolume,
+                systemAudioVolume: systemAudioVolume,
+                combinedVolume: combinedVolume
+            ) { progress in
                 exportProgress = progress
             }
             isExporting = false
