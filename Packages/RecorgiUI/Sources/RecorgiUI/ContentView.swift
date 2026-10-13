@@ -74,7 +74,7 @@ public struct ContentView: View {
         case .record:
             RecordPageView(permissions: permissions, settings: settings, engine: engine, selection: $selection)
         case .recordings:
-            RecordingsLibraryView(saveDirectory: settings.saveDirectory)
+            RecordingsLibraryView(saveDirectory: settings.saveDirectory, settings: settings)
         case .captureRegion:
             CaptureRegionView(settings: settings)
         case .audioSources:

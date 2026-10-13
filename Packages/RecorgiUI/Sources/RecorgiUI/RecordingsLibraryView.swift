@@ -43,6 +43,7 @@ private let recordingsScrollCoordinateSpace = "recordingsScroll"
 
 struct RecordingsLibraryView: View {
     let saveDirectory: URL
+    @ObservedObject var settings: RecordingSettings
     @State private var recordings: [RecordingFile] = []
     @State private var searchText = ""
     @State private var sortOrder: RecordingSortOrder = .dateDescending
@@ -174,7 +175,7 @@ struct RecordingsLibraryView: View {
             Text("Файлы переместятся в Корзину — их можно будет восстановить оттуда.")
         }
         .sheet(item: $editingRecording) { recording in
-            RecordingEditorView(recording: recording, onExported: refresh)
+            RecordingEditorView(recording: recording, defaultMicrophoneNoiseSuppression: settings.microphoneNoiseSuppression, onExported: refresh)
                 // Plain .sheet() sizes itself once from the content's ideal
                 // frame and doesn't let the user drag-resize it at all.
                 // .fitted.sticky(...) (tried first) only actually freed up

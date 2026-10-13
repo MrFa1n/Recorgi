@@ -4,47 +4,6 @@ import MediaToolbox
 import AudioToolbox
 import RecorgiCore
 
-/// How aggressively `MicrophoneNoiseSuppressor` gates down the quiet,
-/// background-noise moments of the microphone track. Applied in the in-app
-/// editor and at export time only — see `MicrophoneNoiseSuppressor`'s own
-/// doc comment for why this can't be done live during recording.
-public enum NoiseSuppressionLevel: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case off, light, medium, strong
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .off: return "Выключено"
-        case .light: return "Слабое"
-        case .medium: return "Среднее"
-        case .strong: return "Сильное"
-        }
-    }
-
-    /// Below this level (dBFS, measured by a short attack/release envelope
-    /// follower, not raw sample amplitude), the signal is treated as
-    /// background noise and attenuated.
-    fileprivate var thresholdDB: Float {
-        switch self {
-        case .off: return 0
-        case .light: return -50
-        case .medium: return -42
-        case .strong: return -34
-        }
-    }
-
-    /// How far a fully-gated moment gets attenuated, in dB.
-    fileprivate var maxReductionDB: Float {
-        switch self {
-        case .off: return 0
-        case .light: return -12
-        case .medium: return -24
-        case .strong: return -40
-        }
-    }
-}
-
 /// Gates down the microphone track's background noise via a classic
 /// envelope-follower noise gate (soft-knee downward expander) — not ML-based
 /// denoising, but a real, tunable reduction that's cheap and predictable.
@@ -115,9 +74,20 @@ public enum MicrophoneNoiseSuppressor {
 /// capped since real microphone tracks never exceed a couple) plus the
 /// attack/release coefficients, which depend on the sample rate only known
 /// once `prepare` runs.
-private final class NoiseGateContext {
-    private let thresholdDB: Float
-    private let maxReductionDB: Float
+///
+/// Not private: `MicrophoneLivePreviewEngine` reuses this exact class (same
+/// `processInPlace`) for the live monitor, so what's heard while
+/// auditioning a level before/during recording uses the identical gate math
+/// that `buildAudioMix` later bakes into the saved file — only the plumbing
+/// around it (MTAudioProcessingTap vs. an AVAudioEngine tap) differs.
+/// `setLevel` lets the live engine hot-swap the level without tearing down
+/// its audio graph; the two Float properties it touches are written from
+/// the main actor and read from a realtime audio thread with no lock —
+/// accepted as a benign race (worst case, one render callback sees a
+/// half-updated level and applies it a few milliseconds early).
+final class NoiseGateContext {
+    private var thresholdDB: Float
+    private var maxReductionDB: Float
     private static let kneeDB: Float = 6
     private static let attackSeconds: Float = 0.005
     private static let releaseSeconds: Float = 0.15
@@ -128,6 +98,11 @@ private final class NoiseGateContext {
     private var envelope = [Float](repeating: 0, count: NoiseGateContext.maxChannels)
 
     init(level: NoiseSuppressionLevel) {
+        thresholdDB = level.thresholdDB
+        maxReductionDB = level.maxReductionDB
+    }
+
+    func setLevel(_ level: NoiseSuppressionLevel) {
         thresholdDB = level.thresholdDB
         maxReductionDB = level.maxReductionDB
     }
@@ -146,11 +121,16 @@ private final class NoiseGateContext {
             let channelsInBuffer = max(1, Int(buffer.mNumberChannels))
             let data = rawData.assumingMemoryBound(to: Float32.self)
             let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size
-            for i in 0..<sampleCount {
-                let channel = i % channelsInBuffer
-                let envelopeSlot = channel % Self.maxChannels
-                data[i] = gate(sample: data[i], envelopeSlot: envelopeSlot)
-            }
+            processInPlace(samples: data, count: sampleCount, channelsInBuffer: channelsInBuffer)
+        }
+    }
+
+    func processInPlace(samples: UnsafeMutablePointer<Float32>, count: Int, channelsInBuffer: Int) {
+        let channels = max(1, channelsInBuffer)
+        for i in 0..<count {
+            let channel = i % channels
+            let envelopeSlot = channel % Self.maxChannels
+            samples[i] = gate(sample: samples[i], envelopeSlot: envelopeSlot)
         }
     }
 

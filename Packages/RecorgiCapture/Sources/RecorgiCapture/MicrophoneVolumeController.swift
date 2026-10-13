@@ -77,14 +77,28 @@ public struct MicrophoneVolumeController {
         return status == noErr
     }
 
-    private static func resolveDeviceID(uid: String?) -> AudioDeviceID? {
-        guard let uid else { return defaultInputDeviceID() }
+    /// Not private: MicrophoneLivePreviewEngine also needs to turn a
+    /// device UID (or nil for "system default") into a concrete
+    /// AudioDeviceID, to point AVAudioEngine's input/output units at the
+    /// same devices the rest of the app's device pickers refer to.
+    /// `isInput` only matters when `uid` is nil — it picks which "system
+    /// default" device nil should resolve to.
+    static func resolveDeviceID(uid: String?, isInput: Bool = true) -> AudioDeviceID? {
+        guard let uid else { return isInput ? defaultInputDeviceID() : defaultOutputDeviceID() }
         return allDeviceIDs()?.first { stringProperty($0, selector: kAudioDevicePropertyDeviceUID) == uid }
     }
 
     private static func defaultInputDeviceID() -> AudioDeviceID? {
+        defaultDeviceID(selector: kAudioHardwarePropertyDefaultInputDevice)
+    }
+
+    private static func defaultOutputDeviceID() -> AudioDeviceID? {
+        defaultDeviceID(selector: kAudioHardwarePropertyDefaultOutputDevice)
+    }
+
+    private static func defaultDeviceID(selector: AudioObjectPropertySelector) -> AudioDeviceID? {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )

@@ -28,6 +28,13 @@ public final class RecordingSettings: ObservableObject {
     }
     @Published public var isMonitoringEnabled: Bool = false
     @Published public var selectedMonitoringOutputID: String?
+    /// Chosen in Audio Sources settings (live-previewable there via
+    /// MicrophoneLivePreviewEngine) and reused as the recording editor's
+    /// starting value for the same recording's microphone track, so
+    /// there's no need to re-pick the level that was just auditioned.
+    @Published public var microphoneNoiseSuppression: NoiseSuppressionLevel = .off {
+        didSet { Self.persist(microphoneNoiseSuppression) }
+    }
     @Published public var saveDirectory: URL
 
     /// nil means "follow the system accent color" (System Settings >
@@ -98,6 +105,7 @@ public final class RecordingSettings: ObservableObject {
     private static let toggleMicrophoneHotkeyDefaultsKey = "recorgi.toggleMicrophoneHotkey"
     private static let toggleSystemAudioHotkeyDefaultsKey = "recorgi.toggleSystemAudioHotkey"
     private static let microphoneVolumeDefaultsKey = "recorgi.microphoneVolume"
+    private static let microphoneNoiseSuppressionDefaultsKey = "recorgi.microphoneNoiseSuppression"
 
     public init() {
         let moviesDirectory = FileManager.default
@@ -114,6 +122,15 @@ public final class RecordingSettings: ObservableObject {
         self.toggleMicrophoneHotkey = Self.loadPersistedHotkey(key: Self.toggleMicrophoneHotkeyDefaultsKey, default: Self.defaultToggleMicrophoneHotkey)
         self.toggleSystemAudioHotkey = Self.loadPersistedHotkey(key: Self.toggleSystemAudioHotkeyDefaultsKey, default: Self.defaultToggleSystemAudioHotkey)
         self.microphoneVolume = Self.loadPersistedMicrophoneVolume()
+        self.microphoneNoiseSuppression = Self.loadPersistedMicrophoneNoiseSuppression()
+    }
+
+    private static func loadPersistedMicrophoneNoiseSuppression() -> NoiseSuppressionLevel {
+        UserDefaults.standard.string(forKey: microphoneNoiseSuppressionDefaultsKey).flatMap(NoiseSuppressionLevel.init(rawValue:)) ?? .off
+    }
+
+    private static func persist(_ level: NoiseSuppressionLevel) {
+        UserDefaults.standard.set(level.rawValue, forKey: microphoneNoiseSuppressionDefaultsKey)
     }
 
     private static func loadPersistedMicrophoneVolume() -> Double? {

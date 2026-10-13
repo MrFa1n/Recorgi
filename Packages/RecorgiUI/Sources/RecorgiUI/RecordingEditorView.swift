@@ -10,6 +10,12 @@ import RecorgiCapture
 /// the source recording is never modified in place.
 struct RecordingEditorView: View {
     let recording: RecordingFile
+    /// What Audio Sources settings had the user previewing with just
+    /// before this recording — the editor's noise-suppression control
+    /// starts here rather than always at .off, so auditioning a level
+    /// beforehand doesn't require re-picking it here too. Still fully
+    /// overridable per export, same as everything else in this editor.
+    var defaultMicrophoneNoiseSuppression: NoiseSuppressionLevel = .off
     var onExported: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -32,7 +38,7 @@ struct RecordingEditorView: View {
     @State private var microphoneVolume = AudioTrackVolume()
     @State private var systemAudioVolume = AudioTrackVolume()
     @State private var combinedVolume = AudioTrackVolume()
-    @State private var microphoneNoiseSuppression: NoiseSuppressionLevel = .off
+    @State private var microphoneNoiseSuppression: NoiseSuppressionLevel
 
     private enum AudioTrackLayout: Equatable {
         case none
@@ -47,10 +53,12 @@ struct RecordingEditorView: View {
     private let exporter = VideoEditExporter()
     private let speeds: [Double] = [0.5, 1.0, 1.5, 2.0]
 
-    init(recording: RecordingFile, onExported: @escaping () -> Void) {
+    init(recording: RecordingFile, defaultMicrophoneNoiseSuppression: NoiseSuppressionLevel = .off, onExported: @escaping () -> Void) {
         self.recording = recording
+        self.defaultMicrophoneNoiseSuppression = defaultMicrophoneNoiseSuppression
         self.onExported = onExported
         _player = State(initialValue: AVPlayer(url: recording.url))
+        _microphoneNoiseSuppression = State(initialValue: defaultMicrophoneNoiseSuppression)
     }
 
     var body: some View {

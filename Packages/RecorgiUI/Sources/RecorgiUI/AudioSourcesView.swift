@@ -16,6 +16,11 @@ struct AudioSourcesView: View {
     // Slider itself always needs a concrete number to show — this starts
     // out mirroring the device's real current hardware volume instead.
     @State private var microphoneVolumePercent: Double = 100
+    @State private var isPreviewingMicrophone = false
+    // @State, not `let` — AVAudioEngine instance needs to survive this
+    // View struct being recreated on every re-render, same reasoning as
+    // CaptureRegionView's AreaHighlighter.
+    @State private var livePreviewEngine = MicrophoneLivePreviewEngine()
 
     private let deviceProvider = AudioDeviceProvider()
     private let applicationProvider = RunningApplicationProvider()
@@ -105,6 +110,46 @@ struct AudioSourcesView: View {
 
                         Divider()
 
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Шумоподавление микрофона")
+                            Picker("Шумоподавление микрофона", selection: $settings.microphoneNoiseSuppression) {
+                                ForEach(NoiseSuppressionLevel.allCases) { level in
+                                    Text(level.displayName).tag(level)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .tint(themeColor)
+                            .hoverCursor()
+                            .onChange(of: settings.microphoneNoiseSuppression) { _, newLevel in
+                                livePreviewEngine.setLevel(newLevel)
+                            }
+
+                            GlassToggleButton(
+                                isPreviewingMicrophone ? "Остановить прослушивание" : "Прослушать микрофон",
+                                systemImage: "waveform",
+                                isOn: $isPreviewingMicrophone
+                            )
+                            .onChange(of: isPreviewingMicrophone) { _, isOn in
+                                if isOn {
+                                    livePreviewEngine.start(
+                                        microphoneDeviceUID: settings.selectedMicrophoneID,
+                                        outputDeviceUID: settings.selectedMonitoringOutputID,
+                                        level: settings.microphoneNoiseSuppression
+                                    )
+                                } else {
+                                    livePreviewEngine.stop()
+                                }
+                            }
+
+                            Text("Чтобы услышать микрофон с выбранным уровнем шумоподавления — работает до записи и во время неё, пока эта страница открыта. Сам уровень применяется к сохранённому файлу позже, в редакторе записи.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .disabled(!settings.isMicrophoneEnabled)
+
+                        Divider()
+
                         GlassToggleButton("Слушать микрофон во время записи", systemImage: "headphones", isOn: $settings.isMonitoringEnabled)
                             .disabled(!settings.isMicrophoneEnabled)
 
@@ -140,6 +185,21 @@ struct AudioSourcesView: View {
         }
         .onChange(of: settings.selectedMicrophoneID) {
             syncMicrophoneVolumeDisplay()
+        }
+        .onChange(of: settings.isMicrophoneEnabled) { _, isEnabled in
+            if !isEnabled {
+                isPreviewingMicrophone = false
+                livePreviewEngine.stop()
+            }
+        }
+        // Leaving this page while previewing would otherwise leave the
+        // engine (and its hold on the microphone) running silently in the
+        // background with no visible toggle left to turn it back off.
+        .onDisappear {
+            if isPreviewingMicrophone {
+                isPreviewingMicrophone = false
+                livePreviewEngine.stop()
+            }
         }
     }
 
