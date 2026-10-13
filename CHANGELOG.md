@@ -4,6 +4,21 @@ All notable changes to Recorgi are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match the
 `MARKETING_VERSION` baked into each build and the git tag it ships under.
 
+## [0.5.0] - 2026-10-13
+
+### Added
+
+- Pause and resume a recording in progress, from the transport bar,
+  the menu bar, or a new global hotkey (⌘⇧P by default) — the same
+  hotkey toggles pause and resume, just like start/stop already did.
+  The paused time is cut out of the final file, not left in as a
+  frozen frame or silence.
+
+### Fixed
+
+- The menu bar icon no longer flashes a "paused" look while a
+  recording is simply starting or stopping.
+
 ## [0.4.0] - 2026-10-13
 
 ### Added

@@ -26,7 +26,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.recorgi.app
         PRODUCT_NAME: Recorgi
-        MARKETING_VERSION: "0.4.0"
+        MARKETING_VERSION: "0.5.0"
         CURRENT_PROJECT_VERSION: "1"
         # Hardened Runtime is for notarization/distribution, not local dev —
         # and it enables Library Validation, which breaks Xcode's Debug-
