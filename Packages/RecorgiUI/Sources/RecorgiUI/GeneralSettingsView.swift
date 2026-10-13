@@ -4,6 +4,7 @@ import RecorgiCore
 
 struct GeneralSettingsView: View {
     @ObservedObject var settings: RecordingSettings
+    var replaySplash: () -> Void
     @State private var exportError: String?
 
     var body: some View {
@@ -187,6 +188,20 @@ struct GeneralSettingsView: View {
 
                         Button("Экспортировать логи…") {
                             exportLogs()
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.capsule)
+                        .hoverCursor()
+                    }
+                }
+
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("О приложении", systemImage: "pawprint.fill")
+                            .font(.headline)
+
+                        Button("Показать заставку ещё раз") {
+                            replaySplash()
                         }
                         .buttonStyle(.glass)
                         .buttonBorderShape(.capsule)
