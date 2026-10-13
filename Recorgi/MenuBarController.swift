@@ -50,11 +50,15 @@ final class MenuBarController: NSObject, ObservableObject {
     // not copied verbatim here only because its RecordingState enum name
     // collides with RecorgiCore's.
     //
-    // There's no dedicated asset for "actually paused" vs. "busy
-    // transitioning between states" — MenuBarPaused covers both, which
-    // only existed for the transitioning case when it was added. Good
-    // enough until/unless that distinction turns out to matter visually;
-    // not worth a new icon asset for.
+    // MenuBarPaused is literally MenuBarIdle's mascot with two small bars
+    // drawn on top — a real "paused" badge, not a generic "busy" look.
+    // Before an actual pause existed, it was (mis)used for .starting/
+    // .stopping too; now that .paused is real, those transitional states
+    // go back to the plain MenuBarIdle mascot instead — otherwise, now
+    // that stopping can take a few real seconds when segments need
+    // merging (see ScreenRecordingEngine.finalizeRecordingSession), the
+    // icon would visibly sit on a "paused" look while the recording is
+    // actually just finishing up, not paused at all.
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
         let imageName: String
@@ -70,7 +74,7 @@ final class MenuBarController: NSObject, ObservableObject {
             isTemplate = true
             label = "Recorgi — запись на паузе"
         case .starting, .stopping, .pausing, .resuming:
-            imageName = "MenuBarPaused"
+            imageName = "MenuBarIdle"
             isTemplate = true
             label = "Recorgi — переключение"
         case .idle, nil:
