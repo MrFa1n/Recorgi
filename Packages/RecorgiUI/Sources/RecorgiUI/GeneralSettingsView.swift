@@ -27,7 +27,7 @@ struct GeneralSettingsView: View {
                             Button("Изменить…") {
                                 chooseSaveDirectory()
                             }
-                            .buttonStyle(.glass)
+                            .glassButtonStyle()
                             .buttonBorderShape(.capsule)
                             .hoverCursor()
                         }
@@ -122,7 +122,7 @@ struct GeneralSettingsView: View {
                         Button("Сбросить по умолчанию") {
                             settings.resetHotkeysToDefaults()
                         }
-                        .buttonStyle(.glass)
+                        .glassButtonStyle()
                         .buttonBorderShape(.capsule)
                         .hoverCursor()
                     }
@@ -189,21 +189,36 @@ struct GeneralSettingsView: View {
                         Button("Экспортировать логи…") {
                             exportLogs()
                         }
-                        .buttonStyle(.glass)
+                        .glassButtonStyle()
                         .buttonBorderShape(.capsule)
                         .hoverCursor()
                     }
                 }
 
                 GlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("О приложении", systemImage: "pawprint.fill")
+                    VStack(alignment: .leading, spacing: 16) {
+                        Label("Отладка", systemImage: "ladybug.fill")
                             .font(.headline)
+
+                        Text("Проверочные функции, не настройки приложения — ничего здесь не сохраняется между запусками.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Toggle(isOn: $settings.debugForceLegacyUI) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Интерфейс как на macOS 15-25")
+                                Text("Без Liquid Glass — обычные системные элементы, как будет выглядеть приложение на старых версиях macOS. Нет способа проверить это иначе: на этой машине нет такой macOS.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .toggleStyle(.switch)
+                        .tint(themeColor)
 
                         Button("Показать заставку ещё раз") {
                             replaySplash()
                         }
-                        .buttonStyle(.glass)
+                        .glassButtonStyle()
                         .buttonBorderShape(.capsule)
                         .hoverCursor()
                     }

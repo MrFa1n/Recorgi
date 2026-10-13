@@ -62,6 +62,10 @@ public struct ContentView: View {
             // already-blue control opts in explicitly with .themedTint(). See
             // AccentTint.swift.
             .environment(\.accentTint, settings.accentColor?.color)
+            // See GlassCompatibility.swift — lets General settings' "Отладка"
+            // card preview the pre-macOS-26 fallback UI without actually
+            // needing an older OS.
+            .environment(\.forceLegacyUI, settings.debugForceLegacyUI)
             // nil means "follow the system" (same as never setting this
             // modifier at all) — a non-nil value forces the whole window
             // (including native AppKit chrome like the title bar) to that

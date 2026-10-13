@@ -37,6 +37,15 @@ public final class RecordingSettings: ObservableObject {
     }
     @Published public var saveDirectory: URL
 
+    /// Debug-only: forces RecorgiUI's pre-macOS-26 fallback styling (see
+    /// GlassCompatibility.swift) even when actually running on 26+ — the
+    /// only way to eyeball the macOS 15-25 look without a second Mac or a
+    /// VM on hand. Flipped from General settings' "Отладка" card.
+    /// Deliberately NOT persisted (no didSet/UserDefaults entry) — a
+    /// one-off visual check, not a real setting; always starts false so a
+    /// forgotten toggle can't silently stick across relaunches.
+    @Published public var debugForceLegacyUI: Bool = false
+
     /// nil means "follow the system accent color" (System Settings >
     /// Appearance) — the original, still-default behavior. A non-nil value
     /// overrides it everywhere: SwiftUI's .tint() and the capture-area

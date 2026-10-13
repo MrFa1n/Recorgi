@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "RecorgiUI",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS(.v15)],
     products: [
         .library(name: "RecorgiUI", targets: ["RecorgiUI"])
     ],

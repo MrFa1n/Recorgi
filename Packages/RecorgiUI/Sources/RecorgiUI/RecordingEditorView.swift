@@ -80,7 +80,7 @@ struct RecordingEditorView: View {
                     .lineLimit(1)
                 Spacer()
                 Button("Готово") { dismiss() }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .buttonBorderShape(.capsule)
                     .hoverCursor()
             }
@@ -138,7 +138,7 @@ struct RecordingEditorView: View {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 20, height: 20)
             }
-            .buttonStyle(.glassProminent)
+            .glassButtonStyle(prominent: true)
             .buttonBorderShape(.circle)
             .themedTint()
             .hoverCursor()
@@ -245,7 +245,7 @@ struct RecordingEditorView: View {
                 Label("Сохранить как новый файл", systemImage: "square.and.arrow.down")
             }
         }
-        .buttonStyle(.glassProminent)
+        .glassButtonStyle(prominent: true)
         .buttonBorderShape(.capsule)
         .themedTint()
         .disabled(isExporting || duration <= 0)

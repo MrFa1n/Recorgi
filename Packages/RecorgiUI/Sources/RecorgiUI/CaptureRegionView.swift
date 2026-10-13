@@ -282,7 +282,7 @@ struct CaptureRegionView: View {
             Button(isAreaSelected ? "Изменить область…" : "Выбрать область…") {
                 selectArea()
             }
-            .buttonStyle(.glassProminent)
+            .glassButtonStyle(prominent: true)
             .buttonBorderShape(.capsule)
             .tint(themeColor)
             .disabled(isSelectingArea || displays.isEmpty)
@@ -362,7 +362,7 @@ struct CaptureRegionView: View {
         // The glass bezel the button style paints behind the label isn't a
         // shape we control or even know the exact radius of — unlike
         // GlassCard, which draws its own background via an explicit
-        // .glassEffect(in: RoundedRectangle(cornerRadius:)), this is a
+        // .recorgiGlass(in: RoundedRectangle(cornerRadius:)), this is a
         // plain Button + .buttonBorderShape(.roundedRectangle), where the
         // system picks the bezel's actual corner radius and how much
         // internal padding it reserves around the label. When that reserve
@@ -376,13 +376,13 @@ struct CaptureRegionView: View {
         let cardClip = RoundedRectangle(cornerRadius: 16, style: .continuous)
         if isSelected {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: true, cardWidth: cardWidth, action: action)
-                .buttonStyle(.glassProminent)
+                .glassButtonStyle(prominent: true)
                 .tint(themeColor)
                 .frame(width: cardWidth, height: sourceCardHeight)
                 .clipShape(cardClip)
         } else {
             sourceCardButton(source: source, title: title, subtitle: subtitle, isSelected: false, cardWidth: cardWidth, action: action)
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .frame(width: cardWidth, height: sourceCardHeight)
                 .clipShape(cardClip)
         }

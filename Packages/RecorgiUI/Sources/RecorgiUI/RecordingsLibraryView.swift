@@ -202,7 +202,7 @@ struct RecordingsLibraryView: View {
                 Button("Удалить", systemImage: "trash") {
                     pendingDelete = recordings.filter { selectedIDs.contains($0.id) }
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .buttonBorderShape(.capsule)
                 .tint(.red)
                 .disabled(selectedIDs.isEmpty)
@@ -211,7 +211,7 @@ struct RecordingsLibraryView: View {
                 Button("Готово") {
                     endSelecting()
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .buttonBorderShape(.capsule)
                 .hoverCursor()
             } else {
@@ -233,7 +233,7 @@ struct RecordingsLibraryView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .glassEffect(in: Capsule())
+                .recorgiGlass(in: Capsule())
                 .frame(maxWidth: 320)
 
                 Menu {
@@ -247,7 +247,7 @@ struct RecordingsLibraryView: View {
                 } label: {
                     Label(sortOrder.label, systemImage: sortOrder.systemImage)
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .buttonBorderShape(.capsule)
                 .hoverCursor()
 
@@ -258,7 +258,7 @@ struct RecordingsLibraryView: View {
                 Button("Выбрать") {
                     isSelecting = true
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .buttonBorderShape(.capsule)
                 .hoverCursor()
                 .disabled(recordings.isEmpty)
@@ -269,7 +269,7 @@ struct RecordingsLibraryView: View {
                     Image(systemName: "arrow.clockwise")
                         .frame(width: 20, height: 20)
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .buttonBorderShape(.capsule)
                 .hoverCursor()
                 .help("Обновить список записей")
@@ -295,7 +295,7 @@ struct RecordingsLibraryView: View {
                     } label: {
                         Label("Удалить (\(selectedIDs.count))", systemImage: "trash")
                     }
-                    .buttonStyle(.glassProminent)
+                    .glassButtonStyle(prominent: true)
                     .buttonBorderShape(.capsule)
                     .tint(.red)
                     .disabled(selectedIDs.isEmpty)
@@ -307,7 +307,7 @@ struct RecordingsLibraryView: View {
                         Image(systemName: "xmark")
                             .frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .buttonBorderShape(.capsule)
                     .hoverCursor()
                     .help("Готово")
@@ -315,7 +315,7 @@ struct RecordingsLibraryView: View {
                     Button("Выбрать") {
                         isSelecting = true
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .buttonBorderShape(.capsule)
                     .hoverCursor()
                     .help("Выбрать несколько записей для удаления")
@@ -381,7 +381,7 @@ struct RecordingsLibraryView: View {
                         Image(systemName: "pencil")
                             .frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .buttonBorderShape(.capsule)
                     .hoverCursor()
                     .help("Переименовать")
@@ -392,7 +392,7 @@ struct RecordingsLibraryView: View {
                         Image(systemName: "folder")
                             .frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .buttonBorderShape(.capsule)
                     .hoverCursor()
                     .help("Показать в Finder")
@@ -403,7 +403,7 @@ struct RecordingsLibraryView: View {
                         Image(systemName: "trash")
                             .frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .buttonBorderShape(.capsule)
                     .hoverCursor()
                     .help("Удалить")
@@ -414,7 +414,7 @@ struct RecordingsLibraryView: View {
                         Image(systemName: "play.fill")
                             .frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.glassProminent)
+                    .glassButtonStyle(prominent: true)
                     .buttonBorderShape(.capsule)
                     .themedTint()
                     .hoverCursor()

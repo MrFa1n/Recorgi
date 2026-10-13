@@ -2,7 +2,14 @@ name: Recorgi
 options:
   bundleIdPrefix: com.recorgi
   deploymentTarget:
-    macOS: "26.0"
+    # 15.0, not 26.0: the recording engine's own floor is macOS 15
+    # (SCRecordingOutput/captureMicrophone, see ScreenRecordingEngine's own
+    # doc comment) — nothing about capture itself needs 26. Liquid Glass
+    # (glassEffect, .buttonStyle(.glass/.glassProminent)) IS 26-only, but
+    # RecorgiUI now gates every use of it behind #available(macOS 26, *)
+    # with a plain-style fallback below that (see GlassCompatibility.swift)
+    # instead of raising the whole app's floor to match the UI.
+    macOS: "15.0"
 
 packages:
   RecorgiCore:
@@ -71,7 +78,7 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleDisplayName: Recorgi
-        LSMinimumSystemVersion: "26.0"
+        LSMinimumSystemVersion: "15.0"
         NSMicrophoneUsageDescription: "Recorgi records your microphone when you turn it on as an audio source."
         NSHumanReadableCopyright: "Recorgi contributors. Licensed under GPL-3.0-or-later."
         LSApplicationCategoryType: public.app-category.video

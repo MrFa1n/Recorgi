@@ -23,7 +23,7 @@ struct HotkeyRecorderField: View {
                 Text(isRecording ? "Нажмите клавиши…" : (binding?.displayLabel ?? "Не задано"))
                     .frame(minWidth: 130)
             }
-            .buttonStyle(.glass)
+            .glassButtonStyle()
             .buttonBorderShape(.capsule)
             .hoverCursor()
 

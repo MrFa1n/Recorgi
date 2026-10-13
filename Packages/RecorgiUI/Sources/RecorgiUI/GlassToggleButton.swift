@@ -18,9 +18,9 @@ struct GlassToggleButton: View {
     var body: some View {
         Group {
             if isOn {
-                toggle.buttonStyle(.glassProminent).themedTint()
+                toggle.glassButtonStyle(prominent: true).themedTint()
             } else {
-                toggle.buttonStyle(.glass)
+                toggle.glassButtonStyle()
             }
         }
         .buttonBorderShape(.capsule)

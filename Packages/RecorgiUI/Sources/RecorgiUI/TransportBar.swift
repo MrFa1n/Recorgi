@@ -115,7 +115,7 @@ struct TransportBar: View {
                     .frame(width: 40, height: 40)
             }
         }
-        .buttonStyle(.glassProminent)
+        .glassButtonStyle(prominent: true)
         .buttonBorderShape(.circle)
         .modifier(RecordButtonTint(isRecording: isRecording, isPaused: isPaused))
         .disabled(isBusy)
@@ -136,7 +136,7 @@ struct TransportBar: View {
                 .font(.system(size: 14))
                 .frame(width: 32, height: 32)
         }
-        .buttonStyle(.glass)
+        .glassButtonStyle()
         .buttonBorderShape(.circle)
         .disabled(isBusy)
         .hoverCursor()
