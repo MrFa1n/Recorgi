@@ -31,12 +31,38 @@ import RecorgiCore
 /// ring buffer is actually for, not just decoration.
 @MainActor
 public final class MicrophoneLivePreviewEngine {
-    private let engine = AVAudioEngine()
+    // var, not let, and rebuilt fresh at the top of every start(): a
+    // long-lived AVAudioEngine instance can keep a stale understanding of
+    // the hardware input/output format across a device change (e.g.
+    // headphones plugged in between a stop() and the next start()) —
+    // engine.connect(...) below re-validates against the format it was
+    // given, and a mismatch there throws an uncatchable NSException
+    // (AVAudioEngine's connect: isn't NSError-based, so Swift's try/catch
+    // can't intercept it — reproduced once in testing: SetOutputFormat
+    // threw from inside connect() right after a headset was connected).
+    // A brand-new engine has no stale state to be wrong about.
+    //
+    // Deliberately does NOT also observe
+    // .AVAudioEngineConfigurationChange to auto-stop on a live device
+    // swap — tried that, but the notification also fires ~80ms after a
+    // perfectly normal start() (observed with a Bluetooth headset
+    // settling into its actual negotiated format), which made the
+    // preview toggle look broken far more often than it ever caught a
+    // real mid-session device change. The fresh-engine-per-start above is
+    // what actually fixes the crash; reacting to every config-change
+    // notification was net harmful, not an extra safety net.
+    private var engine = AVAudioEngine()
     private let gateContext = NoiseGateContext(level: .off)
     private var sinkNode: AVAudioSinkNode?
     private var sourceNode: AVAudioSourceNode?
     private var ringBuffer: RealtimeFloatRingBuffer?
+    // Logs the first sink/source callback after each start() — enough to
+    // confirm real audio is actually flowing in both directions without
+    // spamming a line per realtime callback (which fires dozens of times
+    // a second).
+    private var diagnosticsLogger = DiagnosticsLogger()
     public private(set) var isRunning = false
+    public private(set) var lastError: String?
 
     public init() {}
 
@@ -44,26 +70,39 @@ public final class MicrophoneLivePreviewEngine {
     /// same convention as `RecordingSettings.selectedMicrophoneID`/
     /// `selectedMonitoringOutputID`. Calling this while already running
     /// just updates the level (equivalent to calling `setLevel`); switching
-    /// devices requires `stop()` first.
-    public func start(microphoneDeviceUID: String?, outputDeviceUID: String?, level: NoiseSuppressionLevel) {
+    /// devices requires `stop()` first. Returns false (and sets
+    /// `lastError`) if the engine couldn't actually start, so the caller
+    /// can surface that instead of leaving a toggle on that silently does
+    /// nothing.
+    @discardableResult
+    public func start(microphoneDeviceUID: String?, outputDeviceUID: String?, level: NoiseSuppressionLevel) -> Bool {
         guard !isRunning else {
             setLevel(level)
-            return
+            return true
         }
 
+        lastError = nil
         gateContext.setLevel(level)
+        engine = AVAudioEngine()
 
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
+        Log.devices.notice("MicrophoneLivePreviewEngine.start: input format sampleRate=\(inputFormat.sampleRate, privacy: .public) channels=\(inputFormat.channelCount, privacy: .public)")
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+            lastError = "Микрофон недоступен (пустой входной формат)."
             Log.devices.error("MicrophoneLivePreviewEngine.start: input hardware format unavailable")
-            return
+            return false
         }
 
-        if let inputDeviceID = MicrophoneVolumeController.resolveDeviceID(uid: microphoneDeviceUID, isInput: true) {
+        // Only touch the device explicitly when the caller actually
+        // picked a non-default one — the input/output nodes already
+        // point at the system default devices on their own, and setting
+        // the property redundantly (even to the same device) is an
+        // avoidable risk to the unit's already-working configuration.
+        if let microphoneDeviceUID, let inputDeviceID = MicrophoneVolumeController.resolveDeviceID(uid: microphoneDeviceUID, isInput: true) {
             Self.setCurrentDevice(inputDeviceID, on: input.audioUnit)
         }
-        if let outputDeviceID = MicrophoneVolumeController.resolveDeviceID(uid: outputDeviceUID, isInput: false) {
+        if let outputDeviceUID, let outputDeviceID = MicrophoneVolumeController.resolveDeviceID(uid: outputDeviceUID, isInput: false) {
             Self.setCurrentDevice(outputDeviceID, on: engine.outputNode.audioUnit)
         }
 
@@ -72,15 +111,27 @@ public final class MicrophoneLivePreviewEngine {
         // running on independent IO threads without audible added latency.
         let ring = RealtimeFloatRingBuffer(capacity: 8192 * channelCount)
         ringBuffer = ring
+        diagnosticsLogger = DiagnosticsLogger()
 
         let gateContext = self.gateContext
-        let sink = AVAudioSinkNode { _, _, bufferList in
+        let diagnostics = diagnosticsLogger
+        // Explicitly @Sendable: without it, Swift infers a closure literal
+        // written inside a @MainActor method as isolated to that actor —
+        // harmless at compile time, but AVAudioSinkNode actually invokes
+        // this block on the realtime CoreAudio IO thread, and the runtime
+        // isolation check inserted for that wrong inference crashes with
+        // SIGTRAP the first time real audio arrives. @Sendable opts the
+        // closure out of that inference; everything it captures
+        // (NoiseGateContext, RealtimeFloatRingBuffer, DiagnosticsLogger)
+        // is marked Sendable for exactly this reason.
+        let sink = AVAudioSinkNode { @Sendable _, _, bufferList in
             let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: bufferList))
             for buffer in buffers {
                 guard let rawData = buffer.mData else { continue }
                 let channelsInBuffer = max(1, Int(buffer.mNumberChannels))
                 let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
                 let samples = rawData.assumingMemoryBound(to: Float.self)
+                diagnostics.logSinkOnce(sampleCount: sampleCount, peak: Self.peakAmplitude(samples, count: sampleCount))
                 gateContext.processInPlace(samples: samples, count: sampleCount, channelsInBuffer: channelsInBuffer)
                 ring.write(samples, count: sampleCount)
             }
@@ -91,7 +142,10 @@ public final class MicrophoneLivePreviewEngine {
         sinkNode = sink
 
         let sourceFormat = AVAudioFormat(standardFormatWithSampleRate: inputFormat.sampleRate, channels: AVAudioChannelCount(channelCount)) ?? inputFormat
-        let source = AVAudioSourceNode(format: sourceFormat) { isSilence, _, frameCount, outputData in
+        // Same reasoning as the sink's @Sendable above — this one actually
+        // crashed in testing before this was added (SIGTRAP from a
+        // dispatch_assert_queue failure on the audio IO thread).
+        let source = AVAudioSourceNode(format: sourceFormat) { @Sendable isSilence, _, frameCount, outputData in
             let buffers = UnsafeMutableAudioBufferListPointer(outputData)
             for buffer in buffers {
                 guard let rawData = buffer.mData else { continue }
@@ -102,6 +156,7 @@ public final class MicrophoneLivePreviewEngine {
                 if read < samplesNeeded {
                     for i in read..<samplesNeeded { out[i] = 0 }
                 }
+                diagnostics.logSourceOnce(samplesNeeded: samplesNeeded, samplesRead: read)
             }
             isSilence.pointee = false
             return noErr
@@ -114,10 +169,13 @@ public final class MicrophoneLivePreviewEngine {
             engine.prepare()
             try engine.start()
             isRunning = true
-            Log.devices.notice("MicrophoneLivePreviewEngine.start: ok, mic=\(microphoneDeviceUID ?? "<default>", privacy: .public) output=\(outputDeviceUID ?? "<default>", privacy: .public) level=\(level.rawValue, privacy: .public)")
+            Log.devices.notice("MicrophoneLivePreviewEngine.start: ok, mic=\(microphoneDeviceUID ?? "<default>", privacy: .public) output=\(outputDeviceUID ?? "<default>", privacy: .public) level=\(level.rawValue, privacy: .public) engineRunning=\(self.engine.isRunning, privacy: .public)")
+            return true
         } catch {
+            lastError = error.localizedDescription
             Log.devices.error("MicrophoneLivePreviewEngine.start: engine.start() failed: \(error.localizedDescription, privacy: .public)")
             teardown()
+            return false
         }
     }
 
@@ -147,6 +205,18 @@ public final class MicrophoneLivePreviewEngine {
         isRunning = false
     }
 
+    // nonisolated: called from the @Sendable sink closure above, on the
+    // realtime audio thread — a @MainActor static func (the default for
+    // a static member of a @MainActor class) would hit the exact same
+    // isolation-check crash the @Sendable annotations are working around.
+    nonisolated private static func peakAmplitude(_ samples: UnsafePointer<Float>, count: Int) -> Float {
+        var peak: Float = 0
+        for i in 0..<count {
+            peak = max(peak, abs(samples[i]))
+        }
+        return peak
+    }
+
     private static func setCurrentDevice(_ deviceID: AudioDeviceID, on audioUnit: AudioUnit?) {
         guard let audioUnit else { return }
         var mutableDeviceID = deviceID
@@ -161,5 +231,33 @@ public final class MicrophoneLivePreviewEngine {
         if status != noErr {
             Log.devices.error("MicrophoneLivePreviewEngine.setCurrentDevice: AudioUnitSetProperty failed, status=\(status, privacy: .public)")
         }
+    }
+}
+
+/// One-shot logging for the realtime sink/source callbacks — real audio
+/// data arriving (or not) is exactly what tells apart "no signal is
+/// reaching the gate" from "the gate/ring buffer/output path is the
+/// problem", without printing a line per callback.
+private final class DiagnosticsLogger: @unchecked Sendable {
+    private var lock = os_unfair_lock()
+    private var loggedSink = false
+    private var loggedSource = false
+
+    func logSinkOnce(sampleCount: Int, peak: Float) {
+        os_unfair_lock_lock(&lock)
+        let shouldLog = !loggedSink
+        loggedSink = true
+        os_unfair_lock_unlock(&lock)
+        guard shouldLog else { return }
+        Log.devices.notice("MicrophoneLivePreviewEngine: first sink callback, sampleCount=\(sampleCount, privacy: .public) peak=\(peak, privacy: .public)")
+    }
+
+    func logSourceOnce(samplesNeeded: Int, samplesRead: Int) {
+        os_unfair_lock_lock(&lock)
+        let shouldLog = !loggedSource
+        loggedSource = true
+        os_unfair_lock_unlock(&lock)
+        guard shouldLog else { return }
+        Log.devices.notice("MicrophoneLivePreviewEngine: first source callback, samplesNeeded=\(samplesNeeded, privacy: .public) samplesRead=\(samplesRead, privacy: .public)")
     }
 }

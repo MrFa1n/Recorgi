@@ -85,7 +85,7 @@ public enum MicrophoneNoiseSuppressor {
 /// the main actor and read from a realtime audio thread with no lock —
 /// accepted as a benign race (worst case, one render callback sees a
 /// half-updated level and applies it a few milliseconds early).
-final class NoiseGateContext {
+final class NoiseGateContext: @unchecked Sendable {
     private var thresholdDB: Float
     private var maxReductionDB: Float
     private static let kneeDB: Float = 6

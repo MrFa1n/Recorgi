@@ -21,6 +21,7 @@ struct AudioSourcesView: View {
     // View struct being recreated on every re-render, same reasoning as
     // CaptureRegionView's AreaHighlighter.
     @State private var livePreviewEngine = MicrophoneLivePreviewEngine()
+    @State private var previewError: String?
 
     private let deviceProvider = AudioDeviceProvider()
     private let applicationProvider = RunningApplicationProvider()
@@ -132,11 +133,15 @@ struct AudioSourcesView: View {
                             )
                             .onChange(of: isPreviewingMicrophone) { _, isOn in
                                 if isOn {
-                                    livePreviewEngine.start(
+                                    let started = livePreviewEngine.start(
                                         microphoneDeviceUID: settings.selectedMicrophoneID,
                                         outputDeviceUID: settings.selectedMonitoringOutputID,
                                         level: settings.microphoneNoiseSuppression
                                     )
+                                    if !started {
+                                        previewError = livePreviewEngine.lastError ?? "Не удалось запустить прослушивание."
+                                        isPreviewingMicrophone = false
+                                    }
                                 } else {
                                     livePreviewEngine.stop()
                                 }
@@ -200,6 +205,14 @@ struct AudioSourcesView: View {
                 isPreviewingMicrophone = false
                 livePreviewEngine.stop()
             }
+        }
+        .alert("Ошибка", isPresented: Binding(
+            get: { previewError != nil },
+            set: { if !$0 { previewError = nil } }
+        )) {
+            Button("ОК", role: .cancel) { previewError = nil }
+        } message: {
+            Text(previewError ?? "")
         }
     }
 
