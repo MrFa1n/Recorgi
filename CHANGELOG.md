@@ -4,6 +4,21 @@ All notable changes to Recorgi are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match the
 `MARKETING_VERSION` baked into each build and the git tag it ships under.
 
+## [0.4.0] - 2026-10-13
+
+### Added
+
+- Microphone noise suppression in the recording editor, with four
+  selectable levels (Off/Light/Medium/Strong) — gates down background
+  noise between words and in silence, with instant audible preview
+  before saving. Only available when the recording has separate
+  microphone and system-audio tracks.
+- Preview noise-suppression levels on your own microphone live, from
+  Audio Sources settings — works before recording starts, and while
+  a recording is already in progress as long as that settings page
+  stays open. The level you land on there becomes the recording
+  editor's starting point too.
+
 ## [0.3.0] - 2026-10-12
 
 ### Added
