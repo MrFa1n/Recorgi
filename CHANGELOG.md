@@ -4,6 +4,15 @@ All notable changes to Recorgi are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match the
 `MARKETING_VERSION` baked into each build and the git tag it ships under.
 
+## [0.6.0] - 2026-10-13
+
+### Added
+
+- An animated launch splash — the corgi mascot pops in, ears perk up
+  and wiggle, eyes blink, tongue flicks out, nose pulses, then the
+  Recorgi wordmark fades in before handing off to the app. Replay it
+  any time from General settings.
+
 ## [0.5.0] - 2026-10-13
 
 ### Added
