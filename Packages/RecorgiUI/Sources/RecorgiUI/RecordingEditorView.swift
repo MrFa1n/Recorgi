@@ -32,6 +32,7 @@ struct RecordingEditorView: View {
     @State private var microphoneVolume = AudioTrackVolume()
     @State private var systemAudioVolume = AudioTrackVolume()
     @State private var combinedVolume = AudioTrackVolume()
+    @State private var microphoneNoiseSuppression: NoiseSuppressionLevel = .off
 
     private enum AudioTrackLayout: Equatable {
         case none
@@ -184,6 +185,7 @@ struct RecordingEditorView: View {
                 case .separate:
                     VolumeRegionTimeline(duration: duration, trackLabel: "Системный звук", trackColor: systemAudioColor, baseGain: $systemAudioVolume.baseGain, regions: $systemAudioVolume.regions)
                     VolumeRegionTimeline(duration: duration, trackLabel: "Микрофон", trackColor: microphoneColor, baseGain: $microphoneVolume.baseGain, regions: $microphoneVolume.regions)
+                    noiseSuppressionRow
                 case .combined:
                     VolumeRegionTimeline(duration: duration, trackLabel: "Громкость записи", trackColor: themeColor, baseGain: $combinedVolume.baseGain, regions: $combinedVolume.regions)
                 case .none:
@@ -196,6 +198,29 @@ struct RecordingEditorView: View {
         .onChange(of: microphoneVolume) { _, _ in applyAudioMixToPlayer() }
         .onChange(of: systemAudioVolume) { _, _ in applyAudioMixToPlayer() }
         .onChange(of: combinedVolume) { _, _ in applyAudioMixToPlayer() }
+        .onChange(of: microphoneNoiseSuppression) { _, _ in applyAudioMixToPlayer() }
+    }
+
+    /// Only shown for a two-track (separate) source — gating down a
+    /// combined mic+system track would attenuate system-audio content too,
+    /// see MicrophoneNoiseSuppressor's own doc comment.
+    private var noiseSuppressionRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Шумоподавление микрофона")
+                .font(.subheadline)
+            Picker("Шумоподавление микрофона", selection: $microphoneNoiseSuppression) {
+                ForEach(NoiseSuppressionLevel.allCases) { level in
+                    Text(level.displayName).tag(level)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .tint(microphoneColor)
+            .hoverCursor()
+            Text("Приглушает фоновый шум микрофона между словами и в тишине")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var exportButton: some View {
@@ -287,7 +312,8 @@ struct RecordingEditorView: View {
                 tracks: tracks,
                 microphoneVolume: microphoneVolume,
                 systemAudioVolume: systemAudioVolume,
-                combinedVolume: combinedVolume
+                combinedVolume: combinedVolume,
+                microphoneNoiseSuppression: microphoneNoiseSuppression
             )
         }
     }
@@ -306,7 +332,8 @@ struct RecordingEditorView: View {
                 speed: speed,
                 microphoneVolume: microphoneVolume,
                 systemAudioVolume: systemAudioVolume,
-                combinedVolume: combinedVolume
+                combinedVolume: combinedVolume,
+                microphoneNoiseSuppression: microphoneNoiseSuppression
             ) { progress in
                 exportProgress = progress
             }

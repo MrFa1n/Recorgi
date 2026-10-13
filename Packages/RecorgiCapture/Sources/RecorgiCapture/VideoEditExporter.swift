@@ -33,6 +33,10 @@ public struct VideoEditExporter: Sendable {
     ///   - combinedVolume: applied instead of the two above when the source
     ///     has only one audio track (mic and system audio already mixed
     ///     together, or only one of them was ever captured).
+    ///   - microphoneNoiseSuppression: gates down the microphone track's
+    ///     background noise (see `MicrophoneNoiseSuppressor`'s doc comment).
+    ///     Only takes effect when the source has two separate audio tracks,
+    ///     same restriction as microphoneVolume/systemAudioVolume.
     ///   - onProgress: called with a 0...1 fraction on the main actor.
     public func export(
         sourceURL: URL,
@@ -41,6 +45,7 @@ public struct VideoEditExporter: Sendable {
         microphoneVolume: AudioTrackVolume = AudioTrackVolume(),
         systemAudioVolume: AudioTrackVolume = AudioTrackVolume(),
         combinedVolume: AudioTrackVolume = AudioTrackVolume(),
+        microphoneNoiseSuppression: NoiseSuppressionLevel = .off,
         onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         Log.library.notice("export(): starting, range=\(range.duration.seconds, privacy: .public)s speed=\(speed, privacy: .public)x source=\(sourceURL.lastPathComponent, privacy: .public)")
@@ -96,6 +101,7 @@ public struct VideoEditExporter: Sendable {
             microphoneVolume: microphoneVolume,
             systemAudioVolume: systemAudioVolume,
             combinedVolume: combinedVolume,
+            microphoneNoiseSuppression: microphoneNoiseSuppression,
             sourceRangeStart: range.start.seconds,
             speed: speed
         )
@@ -155,6 +161,7 @@ public struct VideoEditExporter: Sendable {
         microphoneVolume: AudioTrackVolume,
         systemAudioVolume: AudioTrackVolume,
         combinedVolume: AudioTrackVolume,
+        microphoneNoiseSuppression: NoiseSuppressionLevel = .off,
         sourceRangeStart: Double = 0,
         speed: Double = 1.0
     ) -> AVMutableAudioMix? {
@@ -163,6 +170,11 @@ public struct VideoEditExporter: Sendable {
         let volumesByTrack: [AudioTrackVolume] = tracks.count == 1
             ? [combinedVolume]
             : [systemAudioVolume, microphoneVolume]
+        // Index 1 is the microphone only in the two-track (separate) case —
+        // see this function's own doc comment on track identity. A
+        // combined track would also carry system audio, so gating it isn't
+        // offered.
+        let microphoneTrackIndex = tracks.count == 2 ? 1 : nil
 
         var allParams: [AVMutableAudioMixInputParameters] = []
         var hasAnyAdjustment = false
@@ -172,6 +184,11 @@ public struct VideoEditExporter: Sendable {
             let params = AVMutableAudioMixInputParameters(track: track)
             params.setVolume(Float(volume.baseGain), at: .zero)
             if volume.baseGain != 1.0 {
+                hasAnyAdjustment = true
+            }
+
+            if index == microphoneTrackIndex, let tap = MicrophoneNoiseSuppressor.makeTap(level: microphoneNoiseSuppression) {
+                params.audioTapProcessor = tap
                 hasAnyAdjustment = true
             }
 
