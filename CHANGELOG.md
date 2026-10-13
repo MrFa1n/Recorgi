@@ -4,6 +4,19 @@ All notable changes to Recorgi are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match the
 `MARKETING_VERSION` baked into each build and the git tag it ships under.
 
+## [0.7.0] - 2026-10-13
+
+### Added
+
+- Recorgi now runs on macOS 15 (Sequoia) and up, not just 26 — recording
+  itself didn't need 26 in the first place. Below macOS 26 the interface
+  automatically switches to a plain, non-Liquid-Glass look instead of
+  refusing to launch.
+- A new "Отладка" card in General settings, for checking the app itself
+  rather than configuring it: a toggle to preview the older, non-Liquid-
+  Glass interface without needing an actual older Mac, plus the button to
+  replay the launch splash.
+
 ## [0.6.0] - 2026-10-13
 
 ### Added
