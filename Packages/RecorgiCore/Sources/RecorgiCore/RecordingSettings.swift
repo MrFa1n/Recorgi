@@ -86,14 +86,20 @@ public final class RecordingSettings: ObservableObject {
         didSet { Self.persist(toggleSystemAudioHotkey, key: Self.toggleSystemAudioHotkeyDefaultsKey) }
     }
 
+    @Published public var pauseResumeHotkey: HotkeyBinding? {
+        didSet { Self.persist(pauseResumeHotkey, key: Self.pauseResumeHotkeyDefaultsKey) }
+    }
+
     public static let defaultStartStopHotkey = HotkeyBinding(keyCode: 25, modifiers: [.command, .shift], displayLabel: "⌘⇧9")
     public static let defaultToggleMicrophoneHotkey = HotkeyBinding(keyCode: 46, modifiers: [.command, .shift], displayLabel: "⌘⇧M")
     public static let defaultToggleSystemAudioHotkey = HotkeyBinding(keyCode: 1, modifiers: [.command, .shift], displayLabel: "⌘⇧S")
+    public static let defaultPauseResumeHotkey = HotkeyBinding(keyCode: 35, modifiers: [.command, .shift], displayLabel: "⌘⇧P")
 
     public func resetHotkeysToDefaults() {
         startStopHotkey = Self.defaultStartStopHotkey
         toggleMicrophoneHotkey = Self.defaultToggleMicrophoneHotkey
         toggleSystemAudioHotkey = Self.defaultToggleSystemAudioHotkey
+        pauseResumeHotkey = Self.defaultPauseResumeHotkey
     }
 
     private static let accentColorDefaultsKey = "recorgi.accentColor"
@@ -104,6 +110,7 @@ public final class RecordingSettings: ObservableObject {
     private static let startStopHotkeyDefaultsKey = "recorgi.startStopHotkey"
     private static let toggleMicrophoneHotkeyDefaultsKey = "recorgi.toggleMicrophoneHotkey"
     private static let toggleSystemAudioHotkeyDefaultsKey = "recorgi.toggleSystemAudioHotkey"
+    private static let pauseResumeHotkeyDefaultsKey = "recorgi.pauseResumeHotkey"
     private static let microphoneVolumeDefaultsKey = "recorgi.microphoneVolume"
     private static let microphoneNoiseSuppressionDefaultsKey = "recorgi.microphoneNoiseSuppression"
 
@@ -121,6 +128,7 @@ public final class RecordingSettings: ObservableObject {
         self.startStopHotkey = Self.loadPersistedHotkey(key: Self.startStopHotkeyDefaultsKey, default: Self.defaultStartStopHotkey)
         self.toggleMicrophoneHotkey = Self.loadPersistedHotkey(key: Self.toggleMicrophoneHotkeyDefaultsKey, default: Self.defaultToggleMicrophoneHotkey)
         self.toggleSystemAudioHotkey = Self.loadPersistedHotkey(key: Self.toggleSystemAudioHotkeyDefaultsKey, default: Self.defaultToggleSystemAudioHotkey)
+        self.pauseResumeHotkey = Self.loadPersistedHotkey(key: Self.pauseResumeHotkeyDefaultsKey, default: Self.defaultPauseResumeHotkey)
         self.microphoneVolume = Self.loadPersistedMicrophoneVolume()
         self.microphoneNoiseSuppression = Self.loadPersistedMicrophoneNoiseSuppression()
     }

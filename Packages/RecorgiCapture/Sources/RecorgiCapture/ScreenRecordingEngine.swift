@@ -49,6 +49,21 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     private var recordingOutput: SCRecordingOutput?
     private var recordingStopContinuation: CheckedContinuation<Void, Never>?
 
+    // Pause/resume support. ScreenCaptureKit has no native pause — the
+    // only way to stop producing frames mid-recording is to tear the
+    // stream/recording-output down entirely, and the only way to resume
+    // is to start a brand new one, which always writes to a brand new
+    // file. So a pause/resume cycle produces its own "segment" file;
+    // stop() stitches every segment back into one file via
+    // AVMutableComposition if there was more than one (see
+    // finalizeRecordingSession()). A recording that's never paused is
+    // exactly one segment, written directly to `sessionBaseFileURL` —
+    // behaves identically to before pause/resume existed.
+    private var sessionBaseFileURL: URL?
+    private var currentSegmentURL: URL?
+    private var segmentURLs: [URL] = []
+    private var activeSettings: RecordingSettings?
+
     // Legacy pipeline — only used when systemAudioScope == .application,
     // where SCRecordingOutput can't isolate one app's audio on a stream
     // that's also showing the whole screen.
@@ -93,44 +108,117 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         // whatever it had already started.
         state = .starting
         lastError = nil
+        activeSettings = settings
+        segmentURLs = []
+        currentSegmentURL = nil
 
-        do {
-            try await performStart(settings: settings)
-            Log.capture.info("start() succeeded, state=\(String(describing: self.state), privacy: .public)")
-        } catch {
-            Log.capture.error("start() failed: \(error.localizedDescription, privacy: .public)")
-            endRecordingActivity()
-            state = .idle
-            throw error
-        }
-    }
-
-    private func performStart(settings: RecordingSettings) async throws {
         recordingActivityToken = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiated, .idleSystemSleepDisabled, .suddenTerminationDisabled, .automaticTerminationDisabled],
             reason: "Screen recording in progress"
         )
 
-        videoFrameCount = 0
-        droppedNotReadyCount = 0
-        isHandlingWriterFailure = false
-        lastVideoPTS = nil
-        lastSystemAudioPTS = nil
-        lastMicrophonePTS = nil
-
-        try FileManager.default.createDirectory(at: settings.saveDirectory, withIntermediateDirectories: true)
-        let fileURL = settings.saveDirectory.appendingPathComponent(Self.timestampedFilename(extension: settings.videoContainer.fileExtension))
-        Log.capture.notice("performStart: region=\(String(describing: settings.captureRegion), privacy: .public) sysAudio=\(settings.isSystemAudioEnabled, privacy: .public) scope=\(String(describing: settings.systemAudioScope), privacy: .public) mic=\(settings.isMicrophoneEnabled, privacy: .public) codec=\(String(describing: settings.videoCodec), privacy: .public) quality=\(String(describing: settings.recordingQuality), privacy: .public) file=\(fileURL.lastPathComponent, privacy: .public)")
-
         // Show the highlight border (if applicable) before fetching
-        // shareable content, so our own window already exists and can be
-        // matched + excluded from the capture filter below.
+        // shareable content in startSegment(), so our own window already
+        // exists and can be matched + excluded from the capture filter.
+        // Session-level, not per-segment: stays up across any number of
+        // pause/resume cycles, only comes down in finalizeRecordingSession().
         areaHighlighter.setAccentColor(settings.accentColor?.nsColor ?? .controlAccentColor)
         if case .area(let info, let rect) = settings.captureRegion {
             areaHighlighter.show(on: info.displayID, rect: rect)
         } else {
             areaHighlighter.hide()
         }
+
+        do {
+            try FileManager.default.createDirectory(at: settings.saveDirectory, withIntermediateDirectories: true)
+            let fileURL = settings.saveDirectory.appendingPathComponent(Self.timestampedFilename(extension: settings.videoContainer.fileExtension))
+            sessionBaseFileURL = fileURL
+
+            try await startSegment(settings: settings, fileURL: fileURL)
+            state = .recording(startedAt: Date())
+            Log.capture.info("start() succeeded, state=\(String(describing: self.state), privacy: .public)")
+        } catch {
+            Log.capture.error("start() failed: \(error.localizedDescription, privacy: .public)")
+            areaHighlighter.hide()
+            endRecordingActivity()
+            activeSettings = nil
+            sessionBaseFileURL = nil
+            state = .idle
+            throw error
+        }
+    }
+
+    /// Pauses the active recording by tearing down the current segment's
+    /// stream/writer entirely — ScreenCaptureKit has no native pause, see
+    /// this class's segment-tracking properties for why that forces the
+    /// segment-per-pause-cycle design. No-ops (besides a log line) unless
+    /// actually recording.
+    public func pause() async {
+        guard case .recording(let startedAt) = state else {
+            Log.capture.notice("pause() called but state is \(String(describing: self.state), privacy: .public) — ignored")
+            return
+        }
+        Log.capture.notice("pause() starting")
+        state = .pausing
+        await finalizeActiveSegment()
+        state = .paused(startedAt: startedAt, pausedAt: Date())
+        Log.capture.notice("pause() finished, state=paused, segments=\(self.segmentURLs.count, privacy: .public)")
+    }
+
+    /// Resumes a paused recording into a new segment — see `pause()`. On
+    /// failure, reverts to `.paused` (rather than `.idle`) so the user can
+    /// just try again or still get a valid file by pressing Stop; whatever
+    /// was already recorded in earlier segments is never at risk.
+    public func resume() async {
+        guard case .paused(let startedAt, let pausedAt) = state, let settings = activeSettings else {
+            Log.capture.notice("resume() called but state is \(String(describing: self.state), privacy: .public) — ignored")
+            return
+        }
+        guard let fileURL = nextSegmentURL() else {
+            Log.capture.error("resume(): no sessionBaseFileURL — can't name the next segment")
+            return
+        }
+        state = .resuming
+        do {
+            try await startSegment(settings: settings, fileURL: fileURL)
+            let pauseDuration = Date().timeIntervalSince(pausedAt)
+            state = .recording(startedAt: startedAt.addingTimeInterval(pauseDuration))
+            Log.capture.notice("resume() succeeded, segments=\(self.segmentURLs.count + 1, privacy: .public)")
+        } catch {
+            Log.capture.error("resume() failed: \(error.localizedDescription, privacy: .public)")
+            lastError = error.localizedDescription
+            state = .paused(startedAt: startedAt, pausedAt: pausedAt)
+        }
+    }
+
+    /// Names the file a post-pause segment should write to — always
+    /// alongside `sessionBaseFileURL` (where the very first segment
+    /// writes directly), never reused across the session, so an earlier
+    /// segment is never at risk of being overwritten by a later one.
+    private func nextSegmentURL() -> URL? {
+        guard let base = sessionBaseFileURL else { return nil }
+        let ext = base.pathExtension
+        let name = base.deletingPathExtension().lastPathComponent
+        return base.deletingLastPathComponent().appendingPathComponent("\(name) (part \(segmentURLs.count + 1)).\(ext)")
+    }
+
+    /// Starts one capture segment (the whole recording, if it's never
+    /// paused; one slice of it otherwise) — everything that's genuinely
+    /// per-segment: computing the capture filter/config fresh, standing up
+    /// SCRecordingOutput or the legacy AVAssetWriter pipeline, and pointing
+    /// it at `fileURL`. Session-level setup (activity token, area
+    /// highlight) happens once in start(), not here, so it survives
+    /// however many times this gets called across a session.
+    private func startSegment(settings: RecordingSettings, fileURL: URL) async throws {
+        videoFrameCount = 0
+        droppedNotReadyCount = 0
+        isHandlingWriterFailure = false
+        lastVideoPTS = nil
+        lastSystemAudioPTS = nil
+        lastMicrophonePTS = nil
+        currentSegmentURL = fileURL
+
+        Log.capture.notice("startSegment: region=\(String(describing: settings.captureRegion), privacy: .public) sysAudio=\(settings.isSystemAudioEnabled, privacy: .public) scope=\(String(describing: settings.systemAudioScope), privacy: .public) mic=\(settings.isMicrophoneEnabled, privacy: .public) codec=\(String(describing: settings.videoCodec), privacy: .public) quality=\(String(describing: settings.recordingQuality), privacy: .public) file=\(fileURL.lastPathComponent, privacy: .public)")
 
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let primaryDisplay = content.displays.first else {
@@ -307,8 +395,6 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             )
             microphoneSession?.startRunning()
         }
-
-        state = .recording(startedAt: Date())
     }
 
     /// Only reached when systemAudioScope == .application: SCRecordingOutput
@@ -404,17 +490,41 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
 
         microphoneSession?.startRunning()
         Log.capture.notice("performStartLegacyAppScopedAudio: both streams started ok, mic=\(settings.isMicrophoneEnabled, privacy: .public)")
-        state = .recording(startedAt: Date())
     }
 
     public func stop() async {
-        guard case .recording = state else {
+        let wasPaused: Bool
+        switch state {
+        case .recording:
+            wasPaused = false
+        case .paused:
+            wasPaused = true
+        default:
             Log.capture.notice("stop() called but state is \(String(describing: self.state), privacy: .public) — ignored")
             return
         }
-        Log.capture.notice("stop() starting, videoFrames=\(self.videoFrameCount, privacy: .public) droppedNotReady=\(self.droppedNotReadyCount, privacy: .public)")
+        Log.capture.notice("stop() starting, wasPaused=\(wasPaused, privacy: .public) segments=\(self.segmentURLs.count, privacy: .public) videoFrames=\(self.videoFrameCount, privacy: .public) droppedNotReady=\(self.droppedNotReadyCount, privacy: .public)")
         state = .stopping
 
+        // Already torn down by pause() if we were paused — nothing active
+        // left to finalize, just the merge (if any) below.
+        if !wasPaused {
+            await finalizeActiveSegment()
+        }
+
+        await finalizeRecordingSession()
+
+        state = .idle
+        Log.capture.notice("stop() finished, state=idle")
+    }
+
+    /// Tears down whichever pipeline (SCRecordingOutput or the legacy
+    /// AVAssetWriter) is actively capturing right now, finalizing its
+    /// output file and appending it to `segmentURLs`. Shared by pause()
+    /// and stop() — the only difference is what happens next: pause()
+    /// just stops here, stop() goes on to merge every segment accumulated
+    /// so far via finalizeRecordingSession().
+    private func finalizeActiveSegment() async {
         microphoneSession?.stopRunning()
         microphoneSession = nil
         microphoneRelay = nil
@@ -425,7 +535,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 do {
                     try stream.removeRecordingOutput(recordingOutput)
                 } catch {
-                    Log.capture.error("stop(): removeRecordingOutput threw: \(error.localizedDescription, privacy: .public)")
+                    Log.capture.error("finalizeActiveSegment(): removeRecordingOutput threw: \(error.localizedDescription, privacy: .public)")
                     lastError = error.localizedDescription
                     recordingStopContinuation = nil
                     continuation.resume()
@@ -452,9 +562,9 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             switch writer.status {
             case .writing:
                 await writer.finishWriting()
-                Log.capture.notice("stop(): legacy writer finishWriting() returned, status=\(writer.status.rawValue, privacy: .public)")
+                Log.capture.notice("finalizeActiveSegment(): legacy writer finishWriting() returned, status=\(writer.status.rawValue, privacy: .public)")
                 if writer.status == .failed {
-                    Log.capture.error("stop(): legacy writer failed to finalize: \(writer.error?.localizedDescription ?? "unknown", privacy: .public)")
+                    Log.capture.error("finalizeActiveSegment(): legacy writer failed to finalize: \(writer.error?.localizedDescription ?? "unknown", privacy: .public)")
                     lastError = writer.error?.localizedDescription ?? "Recording failed to finalize."
                 }
             case .failed:
@@ -462,7 +572,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
                 // hitting a real encoder/format error), not just when
                 // finishWriting() is called — only checking the .writing
                 // case here would silently skip surfacing that failure.
-                Log.capture.error("stop(): legacy writer was already .failed: \(writer.error?.localizedDescription ?? "unknown", privacy: .public)")
+                Log.capture.error("finalizeActiveSegment(): legacy writer was already .failed: \(writer.error?.localizedDescription ?? "unknown", privacy: .public)")
                 lastError = writer.error?.localizedDescription ?? "Recording failed while writing."
             case .cancelled, .completed, .unknown:
                 break
@@ -475,11 +585,106 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         systemAudioInput = nil
         microphoneInput = nil
 
+        if let currentSegmentURL {
+            segmentURLs.append(currentSegmentURL)
+            self.currentSegmentURL = nil
+        }
+    }
+
+    /// Ends the whole user-visible recording session (as opposed to just
+    /// one segment): merges every segment pause/resume produced into
+    /// `sessionBaseFileURL` if there was more than one, hides the area
+    /// highlight, and ends the activity token. A recording that was never
+    /// paused has exactly one segment, already sitting at
+    /// `sessionBaseFileURL` — nothing to merge, same as before pause/
+    /// resume existed.
+    private func finalizeRecordingSession() async {
+        if segmentURLs.count > 1, let finalURL = sessionBaseFileURL, let settings = activeSettings {
+            Log.capture.notice("finalizeRecordingSession: merging \(self.segmentURLs.count, privacy: .public) segments")
+            do {
+                try await Self.concatenateSegments(segmentURLs, into: finalURL, fileType: settings.videoContainer.avFileType)
+                Log.capture.notice("finalizeRecordingSession: merge ok")
+            } catch {
+                // The individual segment files are left in place (not
+                // cleaned up below) specifically so a merge failure never
+                // loses anything the user actually recorded — only the
+                // convenience of having it as one file.
+                Log.capture.error("finalizeRecordingSession: merge failed: \(error.localizedDescription, privacy: .public)")
+                lastError = "Не удалось объединить части записи после паузы: \(error.localizedDescription)"
+            }
+        }
+
+        segmentURLs = []
+        currentSegmentURL = nil
+        sessionBaseFileURL = nil
+        activeSettings = nil
+
         areaHighlighter.hide()
         endRecordingActivity()
+    }
 
-        state = .idle
-        Log.capture.notice("stop() finished, state=idle")
+    /// Concatenates `urls` in order into `finalURL` via AVMutableComposition
+    /// — the first URL is always `finalURL` itself (segment 1 writes there
+    /// directly), so this exports to a temp file first and atomically
+    /// replaces `finalURL` with it, then removes the other segment files.
+    /// Re-encodes (AVAssetExportPresetHighestQuality) rather than
+    /// attempting a passthrough export: every segment is produced by the
+    /// same recording config, so passthrough would likely work, but
+    /// correctness here matters far more than the few extra seconds a
+    /// re-encode costs for what should be an occasional operation.
+    private static func concatenateSegments(_ urls: [URL], into finalURL: URL, fileType: AVFileType) async throws {
+        let composition = AVMutableComposition()
+        var compositionVideoTrack: AVMutableCompositionTrack?
+        var compositionAudioTracks: [AVMutableCompositionTrack] = []
+        var cursor = CMTime.zero
+
+        for url in urls {
+            let asset = AVURLAsset(url: url)
+            let duration = try await asset.load(.duration)
+            let range = CMTimeRange(start: .zero, duration: duration)
+
+            if let sourceVideoTrack = try await asset.loadTracks(withMediaType: .video).first {
+                if compositionVideoTrack == nil {
+                    compositionVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+                    if let transform = try? await sourceVideoTrack.load(.preferredTransform) {
+                        compositionVideoTrack?.preferredTransform = transform
+                    }
+                }
+                try? compositionVideoTrack?.insertTimeRange(range, of: sourceVideoTrack, at: cursor)
+            }
+
+            // Paired by index, not by any track identity ScreenCaptureKit
+            // exposes (there isn't one) — safe because every segment comes
+            // from the exact same recording config, so track order/count is
+            // consistent across segments in practice. A segment with fewer
+            // audio tracks than an earlier one just leaves that range
+            // silent on the extra track(s), not a crash.
+            let sourceAudioTracks = try await asset.loadTracks(withMediaType: .audio)
+            for (index, sourceAudioTrack) in sourceAudioTracks.enumerated() {
+                while compositionAudioTracks.count <= index {
+                    guard let newTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { break }
+                    compositionAudioTracks.append(newTrack)
+                }
+                guard index < compositionAudioTracks.count else { continue }
+                try? compositionAudioTracks[index].insertTimeRange(range, of: sourceAudioTrack, at: cursor)
+            }
+
+            cursor = cursor + duration
+        }
+
+        let tempURL = finalURL.deletingLastPathComponent()
+            .appendingPathComponent(".recorgi-merge-\(UUID().uuidString)")
+            .appendingPathExtension(finalURL.pathExtension)
+
+        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+            throw RecordingError.recordingSetupFailed("Could not prepare to merge paused segments.")
+        }
+        try await exportSession.export(to: tempURL, as: fileType)
+
+        _ = try FileManager.default.replaceItemAt(finalURL, withItemAt: tempURL)
+        for url in urls where url.path != finalURL.path {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private func endRecordingActivity() {

@@ -2,8 +2,9 @@ import Carbon.HIToolbox
 import Combine
 import RecorgiCore
 
-/// Registers up to three global hotkeys (start/stop recording, toggle
-/// microphone, toggle system audio) via Carbon's RegisterEventHotKey —
+/// Registers up to four global hotkeys (start/stop recording, pause/resume
+/// recording, toggle microphone, toggle system audio) via Carbon's
+/// RegisterEventHotKey —
 /// still, as of this writing, the only public macOS API for a true
 /// system-wide hotkey that fires even while this app isn't frontmost,
 /// *without* requiring Accessibility/Input Monitoring permission the way a
@@ -17,6 +18,7 @@ public final class GlobalHotkeyManager: ObservableObject {
         case startStop = 1
         case toggleMicrophone = 2
         case toggleSystemAudio = 3
+        case pauseResume = 4
     }
 
     private var settings: RecordingSettings?
@@ -70,6 +72,9 @@ public final class GlobalHotkeyManager: ObservableObject {
             .store(in: &cancellables)
         settings.$toggleSystemAudioHotkey
             .sink { [weak self] in self?.register($0, slot: .toggleSystemAudio) }
+            .store(in: &cancellables)
+        settings.$pauseResumeHotkey
+            .sink { [weak self] in self?.register($0, slot: .pauseResume) }
             .store(in: &cancellables)
     }
 
@@ -138,9 +143,20 @@ public final class GlobalHotkeyManager: ObservableObject {
                 switch engine.state {
                 case .idle:
                     try? await engine.start(settings: settings)
-                case .recording:
+                case .recording, .paused:
                     await engine.stop()
-                case .starting, .stopping:
+                case .starting, .pausing, .resuming, .stopping:
+                    break
+                }
+            }
+        case .pauseResume:
+            Task {
+                switch engine.state {
+                case .recording:
+                    await engine.pause()
+                case .paused:
+                    await engine.resume()
+                case .idle, .starting, .pausing, .resuming, .stopping:
                     break
                 }
             }

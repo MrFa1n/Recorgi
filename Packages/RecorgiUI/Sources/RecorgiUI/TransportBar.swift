@@ -15,15 +15,37 @@ struct TransportBar: View {
         return false
     }
 
+    private var isPaused: Bool {
+        if case .paused = engine.state { return true }
+        return false
+    }
+
+    /// Whether the record/stop button should show "stop" and a pause
+    /// button should be available at all — recording and paused are both
+    /// "a recording session is in progress" as far as that's concerned.
+    private var isRecordingOrPaused: Bool {
+        isRecording || isPaused
+    }
+
     private var isBusy: Bool {
         switch engine.state {
-        case .starting, .stopping: return true
-        case .idle, .recording: return false
+        case .starting, .stopping, .pausing, .resuming: return true
+        case .idle, .recording, .paused: return false
         }
     }
 
     private var startedAt: Date? {
         if case .recording(let date) = engine.state { return date }
+        return nil
+    }
+
+    /// Frozen elapsed time to show while paused — `pausedAt - startedAt`,
+    /// not re-derived from `now` like the running timer, since it
+    /// shouldn't keep advancing.
+    private var pausedElapsed: TimeInterval? {
+        if case .paused(let startedAt, let pausedAt) = engine.state {
+            return pausedAt.timeIntervalSince(startedAt)
+        }
         return nil
     }
 
@@ -47,6 +69,10 @@ struct TransportBar: View {
         HStack(spacing: 16) {
             recordButton
 
+            if isRecordingOrPaused {
+                pauseResumeButton
+            }
+
             GlassToggleButton(systemImage: "speaker.wave.2.fill", isOn: $settings.isSystemAudioEnabled)
                 .help("Системный звук")
 
@@ -55,6 +81,11 @@ struct TransportBar: View {
 
             if isRecording {
                 RecordingTimer(startedAt: startedAt)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+            } else if let pausedElapsed {
+                Text(Self.formatted(pausedElapsed))
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)
@@ -67,7 +98,7 @@ struct TransportBar: View {
     private var recordButton: some View {
         Button {
             Task {
-                if isRecording {
+                if isRecordingOrPaused {
                     await engine.stop()
                 } else {
                     try? await engine.start(settings: settings)
@@ -79,29 +110,59 @@ struct TransportBar: View {
                     .controlSize(.small)
                     .frame(width: 40, height: 40)
             } else {
-                Image(systemName: isRecording ? "stop.fill" : "record.circle")
+                Image(systemName: isRecordingOrPaused ? "stop.fill" : "record.circle")
                     .font(.system(size: 18))
                     .frame(width: 40, height: 40)
             }
         }
         .buttonStyle(.glassProminent)
         .buttonBorderShape(.circle)
-        .modifier(RecordButtonTint(isRecording: isRecording))
+        .modifier(RecordButtonTint(isRecording: isRecording, isPaused: isPaused))
         .disabled(isBusy)
         .hoverCursor()
     }
+
+    private var pauseResumeButton: some View {
+        Button {
+            Task {
+                if isPaused {
+                    await engine.resume()
+                } else {
+                    await engine.pause()
+                }
+            }
+        } label: {
+            Image(systemName: isPaused ? "play.fill" : "pause.fill")
+                .font(.system(size: 14))
+                .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .disabled(isBusy)
+        .hoverCursor()
+        .help(isPaused ? "Продолжить запись" : "Приостановить запись")
+    }
+
+    private static func formatted(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval))
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
 }
 
-/// Red while recording (always, regardless of theme), the user's chosen
-/// accent color otherwise. Split out as its own modifier because a ternary
-/// can't pick between two different `Color?` sources inline without an
-/// `@Environment` read, which only a modifier/view can do.
+/// Red while actually recording, orange while paused (both regardless of
+/// theme, same reasoning as before — a status that shouldn't blend in with
+/// the user's chosen accent color), the user's chosen accent color
+/// otherwise. Split out as its own modifier because a ternary can't pick
+/// between different `Color?` sources inline without an `@Environment`
+/// read, which only a modifier/view can do.
 private struct RecordButtonTint: ViewModifier {
     let isRecording: Bool
+    let isPaused: Bool
     @Environment(\.accentTint) private var accentTint
 
     func body(content: Content) -> some View {
-        content.tint(isRecording ? .red : accentTint)
+        let tint: Color? = isRecording ? .red : (isPaused ? .orange : accentTint)
+        content.tint(tint)
     }
 }
 

@@ -49,6 +49,12 @@ final class MenuBarController: NSObject, ObservableObject {
     // RecorgiMenuBar.swift reference implementation (Recorgi-Xcode/Brand),
     // not copied verbatim here only because its RecordingState enum name
     // collides with RecorgiCore's.
+    //
+    // There's no dedicated asset for "actually paused" vs. "busy
+    // transitioning between states" — MenuBarPaused covers both, which
+    // only existed for the transitioning case when it was added. Good
+    // enough until/unless that distinction turns out to matter visually;
+    // not worth a new icon asset for.
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
         let imageName: String
@@ -59,7 +65,11 @@ final class MenuBarController: NSObject, ObservableObject {
             imageName = "MenuBarRecording"
             isTemplate = false
             label = "Recorgi — идёт запись"
-        case .starting, .stopping:
+        case .paused:
+            imageName = "MenuBarPaused"
+            isTemplate = true
+            label = "Recorgi — запись на паузе"
+        case .starting, .stopping, .pausing, .resuming:
             imageName = "MenuBarPaused"
             isTemplate = true
             label = "Recorgi — переключение"
@@ -78,16 +88,37 @@ final class MenuBarController: NSObject, ObservableObject {
         menu.removeAllItems()
         guard let settings, let engine else { return }
 
-        let isRecording: Bool
-        if case .recording = engine.state { isRecording = true } else { isRecording = false }
+        let isRecordingOrPaused: Bool
+        let isPaused: Bool
+        switch engine.state {
+        case .recording:
+            isRecordingOrPaused = true
+            isPaused = false
+        case .paused:
+            isRecordingOrPaused = true
+            isPaused = true
+        default:
+            isRecordingOrPaused = false
+            isPaused = false
+        }
 
         let toggleItem = NSMenuItem(
-            title: isRecording ? "Остановить запись" : "Начать запись",
+            title: isRecordingOrPaused ? "Остановить запись" : "Начать запись",
             action: #selector(toggleRecording),
             keyEquivalent: ""
         )
         toggleItem.target = self
         menu.addItem(toggleItem)
+
+        if isRecordingOrPaused {
+            let pauseItem = NSMenuItem(
+                title: isPaused ? "Продолжить запись" : "Приостановить запись",
+                action: #selector(togglePause),
+                keyEquivalent: ""
+            )
+            pauseItem.target = self
+            menu.addItem(pauseItem)
+        }
 
         menu.addItem(.separator())
 
@@ -121,9 +152,24 @@ final class MenuBarController: NSObject, ObservableObject {
             switch engine.state {
             case .idle:
                 try? await engine.start(settings: settings)
-            case .recording:
+            case .recording, .paused:
                 await engine.stop()
-            case .starting, .stopping:
+            case .starting, .pausing, .resuming, .stopping:
+                break
+            }
+        }
+    }
+
+    @objc private func togglePause() {
+        guard let engine else { return }
+        Log.menuBar.notice("togglePause tapped, state=\(String(describing: engine.state), privacy: .public)")
+        Task {
+            switch engine.state {
+            case .recording:
+                await engine.pause()
+            case .paused:
+                await engine.resume()
+            case .idle, .starting, .pausing, .resuming, .stopping:
                 break
             }
         }

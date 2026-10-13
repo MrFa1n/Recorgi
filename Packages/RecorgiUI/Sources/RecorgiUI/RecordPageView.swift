@@ -13,6 +13,11 @@ struct RecordPageView: View {
         return false
     }
 
+    private var isPaused: Bool {
+        if case .paused = engine.state { return true }
+        return false
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -75,9 +80,9 @@ struct RecordPageView: View {
             // own point size.
             Text("Recorgi")
                 .font(.custom("Unbounded-Bold", size: 34))
-            Text(isRecording ? "Идёт запись…" : "Готово к записи")
+            Text(isRecording ? "Идёт запись…" : (isPaused ? "Запись на паузе" : "Готово к записи"))
                 .font(.title3)
-                .foregroundStyle(isRecording ? .red : .secondary)
+                .foregroundStyle(isRecording ? .red : (isPaused ? .orange : .secondary))
         }
     }
 

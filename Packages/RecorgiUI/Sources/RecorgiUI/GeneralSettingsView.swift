@@ -107,6 +107,7 @@ struct GeneralSettingsView: View {
 
                         VStack(spacing: 12) {
                             hotkeyRow(title: "Старт/стоп записи", binding: $settings.startStopHotkey)
+                            hotkeyRow(title: "Пауза/продолжить запись", binding: $settings.pauseResumeHotkey)
                             hotkeyRow(title: "Микрофон", binding: $settings.toggleMicrophoneHotkey)
                             hotkeyRow(title: "Системный звук", binding: $settings.toggleSystemAudioHotkey)
                         }
@@ -269,7 +270,7 @@ struct GeneralSettingsView: View {
     }
 
     private var hasDuplicateHotkeys: Bool {
-        let bindings = [settings.startStopHotkey, settings.toggleMicrophoneHotkey, settings.toggleSystemAudioHotkey]
+        let bindings = [settings.startStopHotkey, settings.pauseResumeHotkey, settings.toggleMicrophoneHotkey, settings.toggleSystemAudioHotkey]
             .compactMap { $0 }
         return Set(bindings.map { "\($0.keyCode)-\($0.modifiers.rawValue)" }).count != bindings.count
     }
