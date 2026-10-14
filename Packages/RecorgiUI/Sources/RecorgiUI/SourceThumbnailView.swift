@@ -28,7 +28,19 @@ struct SourceThumbnailView: View {
     let source: Source
     var sizing: SizingMode = .fixedHeight(130)
 
-    @State private var image: NSImage?
+    /// A plain `NSImage?` can't tell "still loading" apart from "finished,
+    /// and it failed" — both just leave it `nil`, so a window that
+    /// genuinely can't be captured (closed between listing and loading, no
+    /// permission) span its spinner forever, indistinguishable from one
+    /// that's merely slow. Three explicit states instead, so a real failure
+    /// shows as a failure.
+    private enum LoadState {
+        case loading
+        case loaded(NSImage)
+        case failed
+    }
+
+    @State private var state: LoadState = .loading
 
     private let loader = CaptureThumbnailLoader()
 
@@ -37,7 +49,8 @@ struct SourceThumbnailView: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.black.opacity(0.3))
 
-            if let image {
+            switch state {
+            case .loaded(let image):
                 // .fit, not .fill: the whole image stays visible, scaled to
                 // the box by whichever dimension is tighter (in practice
                 // almost always width, since windows tend to be wider than
@@ -49,16 +62,25 @@ struct SourceThumbnailView: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-            } else {
+            case .loading:
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
+            case .failed:
+                Image(systemName: "eye.slash")
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.4))
             }
         }
         .modifier(SizingModifier(sizing: sizing))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .task(id: source) {
-            image = await load()
+            state = .loading
+            if let image = await load() {
+                state = .loaded(image)
+            } else {
+                state = .failed
+            }
         }
     }
 
