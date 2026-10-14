@@ -816,6 +816,12 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             }
         case .systemAudio:
             if let last = lastSystemAudioPTS, pts <= last { return }
+            // Live volume/mute for the one app this pipeline is scoped to
+            // — see AudioSampleBufferGain's own doc comment for why this
+            // is only reachable (and only correct) for that case, never
+            // for "entire system".
+            let gain: Float = activeSettings?.isSystemAudioMuted == true ? 0 : Float(activeSettings?.systemAudioVolume ?? 1.0)
+            AudioSampleBufferGain.apply(gain, to: sampleBuffer)
             if systemAudioInput?.isReadyForMoreMediaData == true {
                 if systemAudioInput?.append(sampleBuffer) == true {
                     lastSystemAudioPTS = pts

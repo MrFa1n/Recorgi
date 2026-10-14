@@ -12,6 +12,22 @@ public final class RecordingSettings: ObservableObject {
     @Published public var captureRegion: CaptureRegion = .primaryDisplay
     @Published public var isSystemAudioEnabled: Bool = true
     @Published public var systemAudioScope: SystemAudioScope = .entireSystem
+    /// Live software gain (0...1) applied to system audio before it's
+    /// written to the file. Only takes effect when `systemAudioScope` is
+    /// `.application` — that's the one case where ScreenRecordingEngine
+    /// sees system audio's raw samples at all (its legacy per-app
+    /// SCStream pipeline; see that file's own doc comment). When scoped to
+    /// the entire system this is inert: ScreenCaptureKit's own
+    /// SCRecordingOutput owns that audio directly with no raw-sample
+    /// access, the same constraint that already rules out live
+    /// whole-system volume.
+    @Published public var systemAudioVolume: Double = 1.0 {
+        didSet { Self.persist(systemAudioVolume, key: Self.systemAudioVolumeDefaultsKey) }
+    }
+    /// Deliberately not persisted — resets to false on every launch so a
+    /// forgotten mute from last session can't silently keep system audio
+    /// out of a new recording.
+    @Published public var isSystemAudioMuted: Bool = false
     @Published public var isMicrophoneEnabled: Bool = true
     @Published public var selectedMicrophoneID: String?
     /// 0...1, matching CoreAudio's own input-gain scalar. nil means "never
@@ -121,6 +137,7 @@ public final class RecordingSettings: ObservableObject {
     private static let toggleSystemAudioHotkeyDefaultsKey = "recorgi.toggleSystemAudioHotkey"
     private static let pauseResumeHotkeyDefaultsKey = "recorgi.pauseResumeHotkey"
     private static let microphoneVolumeDefaultsKey = "recorgi.microphoneVolume"
+    private static let systemAudioVolumeDefaultsKey = "recorgi.systemAudioVolume"
     private static let microphoneNoiseSuppressionDefaultsKey = "recorgi.microphoneNoiseSuppression"
 
     public init() {
@@ -140,6 +157,7 @@ public final class RecordingSettings: ObservableObject {
         self.pauseResumeHotkey = Self.loadPersistedHotkey(key: Self.pauseResumeHotkeyDefaultsKey, default: Self.defaultPauseResumeHotkey)
         self.microphoneVolume = Self.loadPersistedMicrophoneVolume()
         self.microphoneNoiseSuppression = Self.loadPersistedMicrophoneNoiseSuppression()
+        self.systemAudioVolume = Self.loadPersistedSystemAudioVolume()
     }
 
     private static func loadPersistedMicrophoneNoiseSuppression() -> NoiseSuppressionLevel {
@@ -153,6 +171,11 @@ public final class RecordingSettings: ObservableObject {
     private static func loadPersistedMicrophoneVolume() -> Double? {
         guard UserDefaults.standard.object(forKey: microphoneVolumeDefaultsKey) != nil else { return nil }
         return UserDefaults.standard.double(forKey: microphoneVolumeDefaultsKey)
+    }
+
+    private static func loadPersistedSystemAudioVolume() -> Double {
+        guard UserDefaults.standard.object(forKey: systemAudioVolumeDefaultsKey) != nil else { return 1.0 }
+        return UserDefaults.standard.double(forKey: systemAudioVolumeDefaultsKey)
     }
 
     private static func persist(_ volume: Double?, key: String) {

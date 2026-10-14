@@ -16,6 +16,12 @@ struct AudioSourcesView: View {
     // Slider itself always needs a concrete number to show — this starts
     // out mirroring the device's real current hardware volume instead.
     @State private var microphoneVolumePercent: Double = 100
+    // Mute reuses the same real CoreAudio hardware lever as the volume
+    // slider (there's no separate "recording-only" mute for a live
+    // hardware setting) — remembers the pre-mute percentage so unmuting
+    // restores it exactly, rather than snapping to 100%.
+    @State private var isMicrophoneMuted = false
+    @State private var microphoneVolumeBeforeMute: Double = 100
     @State private var isPreviewingMicrophone = false
     // @State, not `let` — AVAudioEngine instance needs to survive this
     // View struct being recreated on every re-render, same reasoning as
@@ -28,6 +34,13 @@ struct AudioSourcesView: View {
 
     private var themeColor: Color {
         settings.accentColor?.color ?? Color.accentColor
+    }
+
+    /// Live system-audio volume/mute only means anything when scoped to
+    /// one specific app — see RecordingSettings.systemAudioVolume's own
+    /// doc comment for why "entire system" can't offer it.
+    private var isSystemAudioAppScoped: Bool {
+        if case .application = settings.systemAudioScope { true } else { false }
     }
 
     var body: some View {
@@ -59,6 +72,49 @@ struct AudioSourcesView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+
+                        Divider()
+
+                        if isSystemAudioAppScoped {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("Громкость")
+                                    Spacer()
+                                    Text("\(Int((settings.systemAudioVolume * 100).rounded()))%")
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                    Button {
+                                        settings.isSystemAudioMuted.toggle()
+                                    } label: {
+                                        Image(systemName: settings.isSystemAudioMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help(settings.isSystemAudioMuted ? "Включить звук" : "Приглушить")
+                                    .hoverCursor()
+                                    Button {
+                                        settings.systemAudioVolume = 1.0
+                                    } label: {
+                                        Image(systemName: "arrow.counterclockwise")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Сбросить до 100%")
+                                    .disabled(settings.systemAudioVolume == 1.0)
+                                    .hoverCursor()
+                                }
+                                Slider(value: $settings.systemAudioVolume, in: 0...1, step: 0.01)
+                                    .labelsHidden()
+                                    .tint(themeColor)
+                                    .disabled(settings.isSystemAudioMuted)
+                                Text("Применяется сразу — можно крутить и до, и во время записи этого приложения")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .disabled(!settings.isSystemAudioEnabled)
+                        } else {
+                            Text("Живая громкость доступна только при записи звука одного приложения, а не всей системы")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -87,6 +143,14 @@ struct AudioSourcesView: View {
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
                                 Button {
+                                    toggleMicrophoneMute()
+                                } label: {
+                                    Image(systemName: isMicrophoneMuted ? "mic.slash.fill" : "mic.fill")
+                                }
+                                .buttonStyle(.borderless)
+                                .help(isMicrophoneMuted ? "Включить микрофон" : "Приглушить")
+                                .hoverCursor()
+                                Button {
                                     microphoneVolumePercent = 100
                                     applyMicrophoneVolume(percent: 100)
                                 } label: {
@@ -100,6 +164,7 @@ struct AudioSourcesView: View {
                             Slider(value: $microphoneVolumePercent, in: 0...100, step: 1)
                                 .labelsHidden()
                                 .tint(themeColor)
+                                .disabled(isMicrophoneMuted)
                                 .onChange(of: microphoneVolumePercent) { _, newValue in
                                     applyMicrophoneVolume(percent: newValue)
                                 }
@@ -229,11 +294,31 @@ struct AudioSourcesView: View {
         } else {
             microphoneVolumePercent = 100
         }
+        // Switching devices while muted shouldn't un-mute the new device —
+        // carry the mute over by forcing it to 0 too.
+        if isMicrophoneMuted {
+            MicrophoneVolumeController.setVolume(0, deviceUID: settings.selectedMicrophoneID)
+        }
     }
 
     private func applyMicrophoneVolume(percent: Double) {
         let scalar = percent / 100
         settings.microphoneVolume = scalar
         MicrophoneVolumeController.setVolume(Float(scalar), deviceUID: settings.selectedMicrophoneID)
+    }
+
+    /// Mute goes straight to the CoreAudio device, bypassing
+    /// applyMicrophoneVolume on purpose — muting shouldn't overwrite the
+    /// persisted volume choice with 0, it should just silence the hardware
+    /// until unmuted, then restore exactly what was there before.
+    private func toggleMicrophoneMute() {
+        if isMicrophoneMuted {
+            isMicrophoneMuted = false
+            MicrophoneVolumeController.setVolume(Float(microphoneVolumeBeforeMute / 100), deviceUID: settings.selectedMicrophoneID)
+        } else {
+            microphoneVolumeBeforeMute = microphoneVolumePercent
+            isMicrophoneMuted = true
+            MicrophoneVolumeController.setVolume(0, deviceUID: settings.selectedMicrophoneID)
+        }
     }
 }
