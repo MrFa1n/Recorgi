@@ -23,7 +23,26 @@ Carthage/Build/
 # Logs & local env
 *.log
 .env
-.env.local
+.env.*
+!.env.example
+
+# Local agent / editor integrations (may contain paths or credentials)
+/.agents/
+/.codex/
+/.mcp.json
+/.xcodebuildmcp/
+
+# Private keys, local signing identities and provisioning files
+*.key
+*.pem
+*.p12
+*.pfx
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
+id_rsa
+id_ed25519
 
 # Build output
 build/
