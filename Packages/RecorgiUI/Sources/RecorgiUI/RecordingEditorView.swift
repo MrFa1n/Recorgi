@@ -263,6 +263,10 @@ struct RecordingEditorView: View {
         case 1: audioTrackLayout = .combined
         default: audioTrackLayout = .separate
         }
+        // Apply the default mix before the first playback, not only after
+        // the user moves a volume control.
+        applyAudioMixToPlayer()
+        Log.ui.notice("Recording editor: loaded audio layout=\(String(describing: audioTrackLayout), privacy: .public)")
 
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         // queue: .main guarantees this closure runs on the main thread, so

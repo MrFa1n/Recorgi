@@ -368,15 +368,15 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
         recordingConfig.outputURL = fileURL
         recordingConfig.outputFileType = settings.videoContainer.avFileType
         recordingConfig.videoCodecType = settings.videoCodec.avVideoCodecType
-        // Keep both sources in one playback track. QuickTime may select
-        // only one of separate audio tracks, making the microphone appear
-        // missing when recording a call. This also matches the mixed output
-        // produced on macOS 15–26. Separate editing controls remain useful
-        // for older recordings and the app-scoped capture pipeline.
+        // Preserve independently editable sources in the original recording.
+        // The editor exports a mixed playback copy for QuickTime; mixing
+        // during capture would permanently lose per-source volume control.
+        var separatesAudio = false
         if #available(macOS 27, *) {
-            recordingConfig.mixesAudioWithMicrophone = true
+            recordingConfig.mixesAudioWithMicrophone = false
+            separatesAudio = true
         }
-        Log.capture.notice("performStartRecordingOutput: mixed audio output, systemAudio=\(config.capturesAudio, privacy: .public) microphone=\(config.captureMicrophone, privacy: .public) microphoneDevice=\(settings.selectedMicrophoneID ?? "default", privacy: .public)")
+        Log.capture.notice("performStartRecordingOutput: separateAudio=\(separatesAudio, privacy: .public) systemAudio=\(config.capturesAudio, privacy: .public) microphone=\(config.captureMicrophone, privacy: .public) microphoneDevice=\(settings.selectedMicrophoneID ?? "default", privacy: .public)")
         let recordingOutput = SCRecordingOutput(configuration: recordingConfig, delegate: self)
 
         // Must be added before startCapture() to guarantee the first frame

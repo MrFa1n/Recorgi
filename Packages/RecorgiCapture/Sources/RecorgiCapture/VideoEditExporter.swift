@@ -105,6 +105,7 @@ public struct VideoEditExporter: Sendable {
             sourceRangeStart: range.start.seconds,
             speed: speed
         )
+        Log.library.notice("export(): mixing \(compositionAudioTracks.count, privacy: .public) source audio tracks into playback copy; original preserved")
 
         // AVAssetExportSession isn't Sendable, and Swift 6's region checker
         // can't see that observing .states() concurrently with export(to:)
@@ -211,7 +212,9 @@ public struct VideoEditExporter: Sendable {
             allParams.append(params)
         }
 
-        guard hasAnyAdjustment else { return nil }
+        // Even unity gain needs an explicit mix for separate sources:
+        // otherwise playback/export can select just one audio track.
+        guard hasAnyAdjustment || tracks.count > 1 else { return nil }
 
         let mix = AVMutableAudioMix()
         mix.inputParameters = allParams
