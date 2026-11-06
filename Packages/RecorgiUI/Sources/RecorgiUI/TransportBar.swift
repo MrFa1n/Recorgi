@@ -79,7 +79,11 @@ struct TransportBar: View {
             GlassToggleButton(systemImage: "mic.fill", isOn: $settings.isMicrophoneEnabled)
                 .help("Микрофон")
 
-            if isRecording {
+            if case .stopping = engine.state {
+                Text("Подготавливаем видео…")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if isRecording {
                 RecordingTimer(startedAt: startedAt)
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)

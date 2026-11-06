@@ -599,18 +599,29 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     /// `sessionBaseFileURL` — nothing to merge, same as before pause/
     /// resume existed.
     private func finalizeRecordingSession() async {
+        var canPreparePlayback = lastError == nil
         if segmentURLs.count > 1, let finalURL = sessionBaseFileURL, let settings = activeSettings {
             Log.capture.notice("finalizeRecordingSession: merging \(self.segmentURLs.count, privacy: .public) segments")
             do {
                 try await Self.concatenateSegments(segmentURLs, into: finalURL, fileType: settings.videoContainer.avFileType)
                 Log.capture.notice("finalizeRecordingSession: merge ok")
             } catch {
+                canPreparePlayback = false
                 // The individual segment files are left in place (not
                 // cleaned up below) specifically so a merge failure never
                 // loses anything the user actually recorded — only the
                 // convenience of having it as one file.
                 Log.capture.error("finalizeRecordingSession: merge failed: \(error.localizedDescription, privacy: .public)")
                 lastError = "Не удалось объединить части записи после паузы: \(error.localizedDescription)"
+            }
+        }
+
+        if canPreparePlayback, let finalURL = sessionBaseFileURL {
+            do {
+                try await VideoEditExporter.preparePlaybackCopy(at: finalURL)
+            } catch {
+                Log.capture.error("finalizeRecordingSession: playback preparation failed: \(error.localizedDescription, privacy: .public)")
+                lastError = "Исходная запись сохранена, но не удалось подготовить видео для плееров: \(error.localizedDescription)"
             }
         }
 
@@ -627,11 +638,8 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
     /// — the first URL is always `finalURL` itself (segment 1 writes there
     /// directly), so this exports to a temp file first and atomically
     /// replaces `finalURL` with it, then removes the other segment files.
-    /// Re-encodes (AVAssetExportPresetHighestQuality) rather than
-    /// attempting a passthrough export: every segment is produced by the
-    /// same recording config, so passthrough would likely work, but
-    /// correctness here matters far more than the few extra seconds a
-    /// re-encode costs for what should be an occasional operation.
+    /// Passthrough keeps the separate audio sources and original codec;
+    /// playback mixing happens only after the editable source is saved.
     private static func concatenateSegments(_ urls: [URL], into finalURL: URL, fileType: AVFileType) async throws {
         let composition = AVMutableComposition()
         var compositionVideoTrack: AVMutableCompositionTrack?
@@ -676,7 +684,7 @@ public final class ScreenRecordingEngine: NSObject, ObservableObject {
             .appendingPathComponent(".recorgi-merge-\(UUID().uuidString)")
             .appendingPathExtension(finalURL.pathExtension)
 
-        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
             throw RecordingError.recordingSetupFailed("Could not prepare to merge paused segments.")
         }
         try await exportSession.export(to: tempURL, as: fileType)

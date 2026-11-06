@@ -8,6 +8,23 @@ public struct RecordingFile: Identifiable, Hashable, Sendable {
     public let sizeBytes: Int64
 
     public var id: URL { url }
+
+    /// The public movie is ready for playback; the editor prefers the
+    /// untouched multitrack original stored beside it when available.
+    public var editingURL: URL {
+        let source = Self.sourceURL(for: url)
+        return FileManager.default.fileExists(atPath: source.path) ? source : url
+    }
+
+    public var hasEditingSource: Bool { editingURL != url }
+
+    public static func sourcesDirectory(for url: URL) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent) — исходники", isDirectory: true)
+    }
+
+    public static func sourceURL(for url: URL) -> URL {
+        sourcesDirectory(for: url).appendingPathComponent("Original").appendingPathExtension(url.pathExtension)
+    }
 }
 
 public enum RecordingRenameError: LocalizedError {
@@ -91,13 +108,28 @@ public struct RecordingLibrary: Sendable {
             .appendingPathComponent(sanitized)
             .appendingPathExtension(recording.url.pathExtension)
 
-        guard !FileManager.default.fileExists(atPath: newURL.path) else {
+        let sourcesURL = RecordingFile.sourcesDirectory(for: recording.url)
+        let newSourcesURL = RecordingFile.sourcesDirectory(for: newURL)
+        let hasSources = FileManager.default.fileExists(atPath: sourcesURL.path)
+        guard !FileManager.default.fileExists(atPath: newURL.path),
+              !FileManager.default.fileExists(atPath: newSourcesURL.path) else {
             throw RecordingRenameError.alreadyExists
         }
 
         do {
-            try FileManager.default.moveItem(at: recording.url, to: newURL)
-            Log.library.notice("rename(): ok")
+            if hasSources {
+                try FileManager.default.moveItem(at: sourcesURL, to: newSourcesURL)
+            }
+            do {
+                try FileManager.default.moveItem(at: recording.url, to: newURL)
+            } catch {
+                if hasSources {
+                    do { try FileManager.default.moveItem(at: newSourcesURL, to: sourcesURL) }
+                    catch { Log.library.error("rename(): source rollback failed: \(error.localizedDescription, privacy: .public)") }
+                }
+                throw error
+            }
+            Log.library.notice("rename(): ok, includedSources=\(hasSources, privacy: .public)")
         } catch {
             Log.library.error("rename(): moveItem failed: \(error.localizedDescription, privacy: .public)")
             throw RecordingRenameError.renameFailed(error.localizedDescription)
@@ -116,9 +148,22 @@ public struct RecordingLibrary: Sendable {
     /// reversible if this turns out to be a mistake, same safety margin
     /// Finder's own Delete gives you.
     public func delete(_ recording: RecordingFile) throws {
+        let sourcesURL = RecordingFile.sourcesDirectory(for: recording.url)
+        var trashedSources: NSURL?
         do {
-            try FileManager.default.trashItem(at: recording.url, resultingItemURL: nil)
-            Log.library.notice("delete(): moved to Trash")
+            if FileManager.default.fileExists(atPath: sourcesURL.path) {
+                try FileManager.default.trashItem(at: sourcesURL, resultingItemURL: &trashedSources)
+            }
+            do {
+                try FileManager.default.trashItem(at: recording.url, resultingItemURL: nil)
+            } catch {
+                if let trashedSources {
+                    do { try FileManager.default.moveItem(at: trashedSources as URL, to: sourcesURL) }
+                    catch { Log.library.error("delete(): source rollback failed: \(error.localizedDescription, privacy: .public)") }
+                }
+                throw error
+            }
+            Log.library.notice("delete(): moved movie and any editing sources to Trash")
         } catch {
             Log.library.error("delete(): trashItem failed: \(error.localizedDescription, privacy: .public)")
             throw RecordingDeleteError.deleteFailed(error.localizedDescription)

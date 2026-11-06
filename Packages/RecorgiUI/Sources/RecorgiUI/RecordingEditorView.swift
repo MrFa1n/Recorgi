@@ -57,7 +57,7 @@ struct RecordingEditorView: View {
         self.recording = recording
         self.defaultMicrophoneNoiseSuppression = defaultMicrophoneNoiseSuppression
         self.onExported = onExported
-        _player = State(initialValue: AVPlayer(url: recording.url))
+        _player = State(initialValue: AVPlayer(url: recording.editingURL))
         _microphoneNoiseSuppression = State(initialValue: defaultMicrophoneNoiseSuppression)
     }
 
@@ -86,6 +86,14 @@ struct RecordingEditorView: View {
             }
             .padding(24)
             .padding(.bottom, 4)
+
+            if recording.hasEditingSource {
+                Text("Редактируешь исходники: микрофон и звук системы можно менять отдельно. Сохранение создаст новое готовое видео.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 8)
+            }
 
             ScrollView {
                 VStack(spacing: 20) {
@@ -253,7 +261,7 @@ struct RecordingEditorView: View {
     }
 
     private func loadAsset() async {
-        let asset = player.currentItem?.asset ?? AVURLAsset(url: recording.url)
+        let asset = player.currentItem?.asset ?? AVURLAsset(url: recording.editingURL)
         guard let loadedDuration = try? await asset.load(.duration) else { return }
         duration = loadedDuration.seconds
         trimEnd = duration
@@ -339,13 +347,15 @@ struct RecordingEditorView: View {
         )
         do {
             _ = try await exporter.export(
-                sourceURL: recording.url,
+                sourceURL: recording.editingURL,
                 range: range,
                 speed: speed,
                 microphoneVolume: microphoneVolume,
                 systemAudioVolume: systemAudioVolume,
                 combinedVolume: combinedVolume,
-                microphoneNoiseSuppression: microphoneNoiseSuppression
+                microphoneNoiseSuppression: microphoneNoiseSuppression,
+                outputDirectory: recording.url.deletingLastPathComponent(),
+                outputBaseName: recording.name
             ) { progress in
                 exportProgress = progress
             }

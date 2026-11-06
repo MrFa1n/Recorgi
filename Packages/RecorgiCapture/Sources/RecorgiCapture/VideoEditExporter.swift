@@ -37,6 +37,9 @@ public struct VideoEditExporter: Sendable {
     ///     background noise (see `MicrophoneNoiseSuppressor`'s doc comment).
     ///     Only takes effect when the source has two separate audio tracks,
     ///     same restriction as microphoneVolume/systemAudioVolume.
+    ///   - outputDirectory: destination folder, independent of the source
+    ///     folder when the editor opens a retained original.
+    ///   - outputBaseName: public recording name rather than "Original".
     ///   - onProgress: called with a 0...1 fraction on the main actor.
     public func export(
         sourceURL: URL,
@@ -46,6 +49,8 @@ public struct VideoEditExporter: Sendable {
         systemAudioVolume: AudioTrackVolume = AudioTrackVolume(),
         combinedVolume: AudioTrackVolume = AudioTrackVolume(),
         microphoneNoiseSuppression: NoiseSuppressionLevel = .off,
+        outputDirectory: URL? = nil,
+        outputBaseName: String? = nil,
         onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         Log.library.notice("export(): starting, range=\(range.duration.seconds, privacy: .public)s speed=\(speed, privacy: .public)x source=\(sourceURL.lastPathComponent, privacy: .public)")
@@ -81,9 +86,8 @@ public struct VideoEditExporter: Sendable {
             composition.scaleTimeRange(trimmedRange, toDuration: scaledDuration)
         }
 
-        let baseName = sourceURL.deletingPathExtension().lastPathComponent
-        let outputURL = sourceURL
-            .deletingLastPathComponent()
+        let baseName = outputBaseName ?? sourceURL.deletingPathExtension().lastPathComponent
+        let outputURL = (outputDirectory ?? sourceURL.deletingLastPathComponent())
             .appendingPathComponent("\(baseName) (изменено \(Self.timestampSuffix())).mov")
 
         guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
@@ -133,6 +137,92 @@ public struct VideoEditExporter: Sendable {
         }
 
         return outputURL
+    }
+
+    /// Prepares the movie opened by Finder/QuickTime, keeping the untouched
+    /// original beside it for later per-source editing. On any failure the
+    /// public movie remains intact, and no source is overwritten.
+    public static func preparePlaybackCopy(at url: URL) async throws {
+        let asset = AVURLAsset(url: url)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        guard audioTracks.count > 1 else {
+            Log.library.notice("preparePlaybackCopy: already has at most one audio track")
+            return
+        }
+        Log.library.notice("preparePlaybackCopy: preparing \(audioTracks.count, privacy: .public) audio sources for \(url.lastPathComponent, privacy: .public)")
+        let directory = RecordingFile.sourcesDirectory(for: url)
+        let sourceURL = RecordingFile.sourceURL(for: url)
+        let stagedSourceURL = directory.appendingPathComponent(".copying-\(UUID().uuidString)")
+        let tempURL = url.deletingLastPathComponent()
+            .appendingPathComponent(".recorgi-playback-\(UUID().uuidString)")
+            .appendingPathExtension(url.pathExtension)
+        let mixedAudioURL = tempURL.deletingPathExtension().appendingPathExtension("m4a")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            guard !FileManager.default.fileExists(atPath: sourceURL.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            // Publish the editing source only once its copy is complete.
+            try FileManager.default.copyItem(at: url, to: stagedSourceURL)
+            try FileManager.default.moveItem(at: stagedSourceURL, to: sourceURL)
+
+            let source = AVURLAsset(url: sourceURL)
+            defer { withExtendedLifetime(source) {} }
+            let audioComposition = AVMutableComposition()
+            let videoTracks = try await source.loadTracks(withMediaType: .video)
+            let sourceAudioTracks = try await source.loadTracks(withMediaType: .audio)
+            guard !videoTracks.isEmpty else { throw VideoEditError.noVideoTrack }
+            for track in sourceAudioTracks {
+                guard let destination = audioComposition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    throw VideoEditError.exportSetupFailed
+                }
+                let range = try await track.load(.timeRange)
+                try destination.insertTimeRange(range, of: track, at: range.start)
+            }
+            guard let audioExport = AVAssetExportSession(asset: audioComposition, presetName: AVAssetExportPresetAppleM4A) else {
+                throw VideoEditError.exportSetupFailed
+            }
+            let tracks = audioComposition.tracks(withMediaType: .audio)
+            audioExport.audioMix = buildAudioMix(tracks: tracks, microphoneVolume: .init(), systemAudioVolume: .init(), combinedVolume: .init())
+            try await audioExport.export(to: mixedAudioURL, as: .m4a)
+            Log.library.notice("preparePlaybackCopy: audio mix export finished")
+
+            // Encode only the mixed sound, then remux it with the original
+            // video. Long recordings keep their video quality and codec
+            // without an expensive second video encode after every stop.
+            let composition = AVMutableComposition()
+            let mixedAsset = AVURLAsset(url: mixedAudioURL)
+            defer { withExtendedLifetime(mixedAsset) {} }
+            let mixedTracks = try await mixedAsset.loadTracks(withMediaType: .audio)
+            guard mixedTracks.count == 1 else { throw VideoEditError.exportSetupFailed }
+            for track in videoTracks + mixedTracks {
+                guard let destination = composition.addMutableTrack(withMediaType: track.mediaType, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    throw VideoEditError.exportSetupFailed
+                }
+                let range = try await track.load(.timeRange)
+                try destination.insertTimeRange(range, of: track, at: range.start)
+                if track.mediaType == .video {
+                    destination.preferredTransform = try await track.load(.preferredTransform)
+                }
+            }
+            guard let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+                throw VideoEditError.exportSetupFailed
+            }
+            let fileType: AVFileType = url.pathExtension.lowercased() == "mp4" ? .mp4 : .mov
+            Log.library.notice("preparePlaybackCopy: remuxing original video with mixed audio")
+            try await session.export(to: tempURL, as: fileType)
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL)
+            do { try FileManager.default.removeItem(at: mixedAudioURL) }
+            catch { Log.library.error("preparePlaybackCopy: mixed audio cleanup failed: \(error.localizedDescription, privacy: .public)") }
+            Log.library.notice("preparePlaybackCopy: ready, original retained at \(sourceURL.path, privacy: .public)")
+        } catch {
+            for temporaryURL in [tempURL, mixedAudioURL, stagedSourceURL] where FileManager.default.fileExists(atPath: temporaryURL.path) {
+                do { try FileManager.default.removeItem(at: temporaryURL) }
+                catch { Log.library.error("preparePlaybackCopy: temporary file cleanup failed: \(error.localizedDescription, privacy: .public)") }
+            }
+            Log.library.error("preparePlaybackCopy failed; original retained: \(error.localizedDescription, privacy: .public)")
+            throw error
+        }
     }
 
     /// Builds the AVMutableAudioMix shared by both live preview (called

@@ -172,7 +172,7 @@ struct RecordingsLibraryView: View {
             }
             Button("Отмена", role: .cancel) { pendingDelete = nil }
         } message: {
-            Text("Файлы переместятся в Корзину — их можно будет восстановить оттуда.")
+            Text("Видео и его исходники переместятся в Корзину — их можно будет восстановить оттуда.")
         }
         .sheet(item: $editingRecording) { recording in
             RecordingEditorView(recording: recording, defaultMicrophoneNoiseSuppression: settings.microphoneNoiseSuppression, onExported: refresh)
@@ -370,6 +370,11 @@ struct RecordingsLibraryView: View {
                     Text(detail(for: recording))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if recording.hasEditingSource {
+                        Text("Исходники сохранены для раздельной настройки звука")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Spacer()
@@ -409,16 +414,28 @@ struct RecordingsLibraryView: View {
                     .help("Удалить")
 
                     Button {
+                        Log.library.notice("Library: opening playback file \(recording.url.lastPathComponent, privacy: .public)")
+                        NSWorkspace.shared.open(recording.url)
+                    } label: {
+                        Label("Открыть", systemImage: "play.fill")
+                    }
+                    .glassButtonStyle()
+                    .buttonBorderShape(.capsule)
+                    .themedTint()
+                    .hoverCursor()
+                    .help("Открыть видео в обычном плеере")
+
+                    Button {
+                        Log.library.notice("Library: opening editor, usesSource=\(recording.hasEditingSource, privacy: .public)")
                         editingRecording = recording
                     } label: {
-                        Image(systemName: "play.fill")
-                            .frame(width: 20, height: 20)
+                        Label("Редактировать", systemImage: "slider.horizontal.3")
                     }
                     .glassButtonStyle(prominent: true)
                     .buttonBorderShape(.capsule)
                     .themedTint()
                     .hoverCursor()
-                    .help("Открыть во встроенном плеере")
+                    .help("Открыть запись и настройки звука в Recorgi")
                 }
             }
         }
