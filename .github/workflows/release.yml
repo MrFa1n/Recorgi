@@ -1,0 +1,44 @@
+name: Build and publish DMG
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build macOS app and attach DMG
+    runs-on: xcode-27
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build and package DMG
+        run: ./Scripts/make-dmg.sh
+
+      - name: Verify tag matches app version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          APP_PATH=".build/release/Build/Products/Release/Recorgi.app"
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist")
+          TAG_VERSION="${RELEASE_TAG#v}"
+          if [ "$TAG_VERSION" != "$APP_VERSION" ]; then
+            echo "Tag $RELEASE_TAG does not match app version $APP_VERSION." >&2
+            exit 1
+          fi
+
+      - name: Publish release with DMG
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: dist/Recorgi-*.dmg
