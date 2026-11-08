@@ -4,6 +4,20 @@ All notable changes to Recorgi are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match the
 `MARKETING_VERSION` baked into each build and the git tag it ships under.
 
+## [0.7.1] - 2026-11-08
+
+### Added
+
+- Recordings now have a ready-to-play audio mix for QuickTime while keeping
+  microphone and system audio as separate sources for editing in Recorgi.
+- Adjust microphone and app audio levels, or mute them, while recording.
+- Prepare a playback copy when a recording finishes, alongside the editable
+  source tracks.
+
+### Fixed
+
+- Display and window thumbnails now load reliably in the capture source picker.
+
 ## [0.7.0] - 2026-10-13
 
 ### Added
